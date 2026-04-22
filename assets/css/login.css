@@ -1,0 +1,466 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
+
+/* ITC Benguiat Regular */
+@font-face {
+    font-family: 'ITC Benguiat';
+    src: url('fonts/ITCBenguiat-Regular.woff2') format('woff2'),
+         url('fonts/ITCBenguiat-Regular.woff') format('woff'),
+         url('fonts/ITCBenguiat-Regular.ttf') format('truetype');
+}
+
+/* ITC Benguiat Bold Condensed */
+@font-face {
+    font-family: 'ITC Benguiat Bold Condensed';
+    src: url('fonts/ITCBenguiat-BoldCondensed.woff2') format('woff2'),
+         url('fonts/ITCBenguiat-BoldCondensed.woff') format('woff'),
+         url('fonts/ITCBenguiat-BoldCondensed.ttf') format('truetype');
+}
+
+:root {
+    --primary-color: #000f2e;
+    --secondary-color: #ffffff;
+}
+
+* {
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:'Montserrat', sans-serif;
+}
+
+body {
+    background: linear-gradient(to right, #FFFFF0, #f0e6d2);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+
+/* MAIN CONTAINER */
+
+.container {
+    width:900px;
+    max-width:95%;
+    min-height:600px;
+    background:#fff;
+    border-radius:30px;
+    overflow:hidden;
+    position:relative;
+    box-shadow:
+        0 20px 50px rgba(0,15,46,0.7),
+        0 10px 30px rgba(0,15,46,0.5);
+}
+
+/* FORM CONTAINER */
+
+.form-container {
+    position:absolute;
+    top:0;
+    height:100%;
+    width:50%;
+    transition:all 0.6s ease-in-out;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    flex-direction:column;
+    background-color:#fff;
+}
+
+/* BIGGER LOGO WITH HOVER SHADOW */
+
+.form-container img {
+  width: 320px;
+    margin-bottom: 15px;
+    filter: drop-shadow(0 4px 2px rgba(0, 26, 71, 0.5));
+    transition: filter 0.3s ease;
+}
+
+.form-container img:hover {
+   filter: drop-shadow(0 12px 20px rgba(0, 26, 71, 0.7));
+}
+
+/* SIGN SWITCH */
+
+.sign-in {
+    left:0;
+    z-index:2;
+}
+
+.container.active .sign-in {
+    transform:translateX(100%);
+}
+
+.sign-up {
+    left:0;
+    opacity:0;
+    z-index:1;
+}
+
+.container.active .sign-up {
+    transform:translateX(100%);
+    opacity:1;
+    z-index:5;
+}
+
+/* TOGGLE */
+
+.toggle-container {
+    position:absolute;
+    top:0;
+    left:50%;
+    width:50%;
+    height:100%;
+    overflow:hidden;
+    border-radius:150px 0 0 150px;
+    z-index:1000;
+    transition:all 0.6s ease-in-out;
+}
+
+.container.active .toggle-container {
+    transform:translateX(-100%);
+    border-radius:0 150px 150px 0;
+}
+
+.toggle {
+    position:relative;
+    left:-100%;
+    width:200%;
+    height:100%;
+    background: linear-gradient(135deg, #001a47, #2555b5);
+    transition:all 0.6s ease-in-out;
+}
+
+.container.active .toggle {
+    transform:translateX(50%);
+}
+
+/* TOGGLE PANELS */
+
+.toggle-panel {
+    position: absolute;
+    width: 50%;
+    height: 100%;
+    padding: 40px;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.toggle-left {
+    left:0;
+    transform:translateX(-200%);
+    transition:all 0.6s ease-in-out;
+}
+
+.container.active .toggle-left {
+    transform:translateX(0);
+}
+
+.toggle-right {
+    right:0;
+    transform:translateX(0);
+    transition:all 0.6s ease-in-out;
+}
+
+.container.active .toggle-right {
+    transform:translateX(200%);
+}
+
+/* PHRASE STYLE */
+
+.phrase1 {
+    font-family: 'ITC Benguiat Bold Condensed';
+    font-size: 34px;
+    color: #ffffff;
+
+    position: absolute;
+    top: 50%;
+    transform: translateY(-55%);
+
+    white-space: nowrap;
+    text-align: center;
+    letter-spacing: 0.3px;
+    margin: 0;
+    line-height: 1.1; /* tighter spacing */
+}
+
+
+.phrase2 {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 16px;
+    color: #e6e6e6;
+
+    position: absolute;
+    top: calc(50% + 35px); /* closer */
+    transform: translateY(-50%);
+
+    margin: 0;
+    letter-spacing: 0.2px;
+}
+
+.star {
+    font-size: 18px; /* smaller than text */
+    color: #FFD700;
+    margin: 0 6px; /* reduce horizontal gap */
+    vertical-align: middle;
+}
+
+.toggle-panel button {
+    position: absolute;
+    bottom: 80px;
+
+    width: 180px;
+    height: 45px;
+    font-size: 15px;
+}
+
+
+/* TEXT UNDER BUTTON */
+
+.signup-text {
+    position: absolute;
+    bottom: 50px;
+
+    font-size: 14px;
+    color: #ffffff;
+    opacity: 0.9;
+}
+
+/* INPUT BASE (UNCHANGED SIGNUP STYLE) */
+
+input {
+    background:#e8f5e9;
+    border:none;
+    margin:10px 0;
+    padding:12px 15px;
+    font-size:14px;
+    border-radius:8px;
+    width:100%;
+    outline:none;
+    color:#001a47;
+}
+
+.sign-up input,
+.sign-in input,
+.sign-up .textbox {
+    width:100%;
+    max-width:none;
+}
+
+/* SIGNUP SELECT (UNCHANGED) */
+
+.sign-up select {
+    background:#e8f5e9;
+    border:none;
+    margin:10px 0;
+    padding:12px 40px 12px 15px;
+    border-radius:8px;
+    width:100%;
+}
+
+/* SIGNUP SCROLL */
+
+.signup-form {
+    overflow-y: auto;
+    height: 100%;
+    padding: 20px 30px 40px 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+
+/* SIGN-IN FORM ALIGNMENT */
+
+.sign-in form {
+    width:100%;
+    max-width:320px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+}
+
+.sign-up form button {
+    width: 220px;
+    height: 45px;
+    margin-top: 15px;
+}
+
+/* INPUT GROUP */
+
+.sign-in .input-group {
+    position:relative;
+    width:100%;
+    margin-bottom:18px;
+}
+
+/* LEFT ICON */
+
+.sign-in .input-group i.fa-envelope,
+.sign-in .input-group i.fa-lock {
+    position:absolute;
+    left:15px;
+    top:50%;
+    transform:translateY(-50%);
+    color:#666;
+}
+
+/* RIGHT ICON */
+
+.sign-in .input-group i#toggleLoginPassword {
+    position:absolute;
+    right:15px;
+    top:50%;
+    transform:translateY(-50%);
+    cursor:pointer;
+}
+
+/* INPUT PADDING */
+
+.sign-in .input-group input {
+    padding-left:45px;
+    padding-right:45px;
+    height:45px;
+}
+
+/* REMEMBER ROW */
+
+.sign-in .options-row {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    width:100%;
+    margin-top:5px;
+    margin-bottom:25px;
+}
+
+.sign-in .options-row label {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:14px;
+    cursor:pointer;
+}
+
+.sign-in .options-row input[type="checkbox"] {
+    width:16px;
+    height:16px;
+    accent-color:#001a47;
+}
+
+/* BUTTON */
+
+button {
+    background:#000f2e;
+    color:#fff;
+    padding:12px 50px;
+    border:none;
+    border-radius:8px;
+    font-weight:600;
+    cursor:pointer;
+}
+
+button:hover {
+    background:#001a47;
+}
+
+/* SIGN-IN BUTTON SIZE */
+
+.sign-in button {
+    width:155px;
+    height:45px;
+    font-size:15px;
+    text-transform: capitalize;
+}
+
+/* SOCIAL */
+
+.social-icons {
+    margin:20px 0;
+    display:flex;
+    gap:12px;
+ justify-content: center; /* center horizontally */
+    align-items: center;     /* center vertically */
+    width: 100%;
+    
+}
+
+.social-icons a {
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    width:45px;
+    height:45px;
+    border-radius:50%;
+    color:#001a47;
+}
+
+.sign-in .options-row a {
+    text-decoration: none; /* removes underline */
+    color: #001a47;
+}
+
+
+/* FORCE SAME WIDTH AS INPUTS */
+
+.permit-wrapper {
+    width: 100%;
+}
+
+
+/* MATCH INPUT STYLE */
+
+.permit-button {
+    background: #e8f5e9;
+    padding: 12px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    width: 100%;
+
+    font-size: 14px;
+    color: #001a47;
+
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+
+/* HELPER TEXT FIX WIDTH */
+
+.permit-help {
+    display: block;
+    width: 90%;
+
+    margin-top: 6px;
+
+    font-size: 12px;
+    color: #666;
+
+    line-height: 1.3;
+}
+#business_line_container select{
+width:100%;
+box-sizing:border-box;
+}
+.business-hidden{
+display:none;
+}
+
+.business-visible{
+display:block;
+width:100%;
+}
+
+#business_name_container,
+#business_line_container{
+width:100%;
+display:block;
+}
+
+#business_name_container input,
+#business_line_container select{
+width:100%;
+}

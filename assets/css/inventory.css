@@ -1,0 +1,1054 @@
+
+body{
+margin:0;
+font-family:Segoe UI;
+background:#f4f6fb;
+}
+
+.header{
+background:#fff;
+padding:15px;
+box-shadow:0 2px 8px rgba(0,0,0,0.05);
+}
+
+.header img{
+height:36px;
+}
+
+.tabs{
+display:flex;
+background:#fff;
+border-bottom:1px solid #eee;
+}
+
+.tab{
+flex:1;
+text-align:center;
+padding:14px;
+text-decoration:none;
+color:#666;
+font-weight:600;
+}
+
+.tab.active{
+color:#001a47;
+border-bottom:3px solid #001a47;
+}
+
+.container{
+padding:15px;
+}
+
+
+/* TABLE */
+
+.table-card{
+background:#fff;
+border-radius:12px;
+box-shadow:0 2px 6px rgba(0,0,0,0.06);
+overflow:hidden;
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+}
+
+thead{
+background:#001a47;
+color:#fff;
+}
+
+thead th{
+padding:14px;
+text-align:left;
+font-size:14px;
+}
+
+tbody td{
+padding:12px;
+border-bottom:1px solid #eee;
+font-size:14px;
+vertical-align:middle;
+}
+
+tbody tr:hover{
+background:#f8faff;
+}
+
+.product-img{
+width:50px;
+height:50px;
+border-radius:8px;
+object-fit:cover;
+}
+
+
+/* ACTION ICONS */
+
+.action-icons{
+display:flex;
+align-items:center;
+gap:14px;
+}
+
+.action-icons a{
+color:#555;
+font-size:16px;
+text-decoration:none;
+cursor:pointer;
+}
+
+.action-icons a:hover{
+color:#001a47;
+}
+
+.more-menu{
+position:relative;
+display:inline-block;
+}
+
+.more-dropdown{
+display:none;
+position:absolute;
+right:0;
+top:22px;
+background:#fff;
+box-shadow:0 2px 8px rgba(0,0,0,0.15);
+border-radius:8px;
+overflow:hidden;
+min-width:120px;
+z-index:10;
+}
+
+.more-dropdown a{
+display:block;
+padding:10px;
+font-size:14px;
+color:#333;
+text-decoration:none;
+}
+
+.more-dropdown a:hover{
+background:#f4f6fb;
+}
+
+.more-menu.active .more-dropdown{
+display:block;
+}
+
+
+/* CATEGORY FORM */
+
+.category-form{
+background:#fff;
+padding:15px;
+border-radius:12px;
+box-shadow:0 2px 6px rgba(0,0,0,0.06);
+margin-bottom:15px;
+display:flex;
+gap:10px;
+}
+
+.category-form input{
+flex:1;
+padding:12px;
+border:1px solid #ddd;
+border-radius:8px;
+}
+
+.category-form button{
+background:#001a47;
+color:#fff;
+border:none;
+padding:12px 16px;
+border-radius:8px;
+font-weight:600;
+cursor:pointer;
+}
+
+.card{
+background:#fff;
+border-radius:12px;
+margin-bottom:15px;
+overflow:hidden;
+box-shadow:0 2px 6px rgba(0,0,0,0.06);
+}
+
+.card-body{
+padding:12px;
+}
+
+
+/* MODAL */
+
+.modal{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.4);
+display:none;
+align-items:center;
+justify-content:center;
+padding:15px;
+z-index:999;
+}
+
+.modal-content{
+background:#fff;
+padding:20px;
+border-radius:12px;
+width:100%;
+max-width:400px;
+}
+
+.modal-content form{
+display:flex;
+flex-direction:column;
+gap:12px;
+}
+
+.modal-content input,
+.modal-content select,
+.modal-content textarea{
+padding:12px;
+border:1px solid #ddd;
+border-radius:8px;
+}
+
+.modal-content button{
+background:#001a47;
+color:#fff;
+border:none;
+padding:14px;
+border-radius:8px;
+font-weight:600;
+cursor:pointer;
+}
+
+.add-btn{
+background:#001a47;
+color:#fff;
+padding:10px 18px;
+border:none;
+border-radius:8px;
+font-weight:600;
+cursor:pointer;
+}
+
+/* EXPIRATION WRAPPER */
+#expirationWrapper{
+width:100%;
+margin-top:12px;
+display:flex;
+flex-direction:column;
+gap:6px;
+}
+
+/* LABEL */
+#expirationWrapper label{
+font-size:14px;
+font-weight:500;
+color:#333;
+}
+
+/* DATE INPUT FULL WIDTH */
+#expirationWrapper input[type="date"]{
+width:100%;
+padding:12px 14px;
+border:1px solid #ddd;
+border-radius:10px;
+font-size:15px;
+background:#fff;
+box-sizing:border-box;
+appearance:none;
+-webkit-appearance:none;
+-moz-appearance:none;
+}
+
+/* FIX CALENDAR ICON ALIGNMENT */
+#expirationWrapper input[type="date"]::-webkit-calendar-picker-indicator{
+cursor:pointer;
+opacity:0.7;
+}
+
+/* MATCH OTHER INPUT STYLE */
+.modal-content input,
+.modal-content select,
+.modal-content textarea{
+width:100%;
+box-sizing:border-box;
+}
+
+/* ACTION DROPDOWN */
+
+.action-wrapper{
+position:relative;
+display:flex;
+align-items:center;
+gap:14px;
+}
+
+.action-btn{
+background:#f1f3f7;
+border-radius:50%;
+width:36px;
+height:36px;
+display:flex;
+align-items:center;
+justify-content:center;
+cursor:pointer;
+transition:0.2s;
+}
+
+.action-btn:hover{
+background:#e4e7ec;
+}
+
+.dropdown{
+position:fixed;
+z-index:9999;
+min-width:160px;
+max-width:180px;
+background:#fff;
+border-radius:12px;
+box-shadow:0 8px 20px rgba(0,0,0,0.15);
+overflow:hidden;
+display:none;
+}
+
+.dropdown.show{
+display:block;
+}
+
+
+.dropdown.show{
+display:block;
+}
+
+.dropdown-item{
+display:flex;
+align-items:center;
+gap:12px;
+padding:12px 16px;
+font-size:15px;
+color:#374151;
+text-decoration:none;
+cursor:pointer;
+}
+
+.dropdown-item:hover{
+background:#f3f4f6;
+}
+
+.dropdown-item.delete{
+color:#ef4444;
+}
+
+.dropdown-divider{
+height:1px;
+background:#e5e7eb;
+margin:6px 0;
+}
+.action-wrapper{
+position:relative;
+z-index:10;
+}
+
+.action-btn{
+position:relative;
+z-index:11;
+}
+
+.dropdown{
+z-index:9999;
+}
+/* CRITICAL FIX — allow clicks when modal hidden */
+.modal{
+display:none;
+pointer-events:none;
+}
+
+.modal.show{
+display:flex;
+pointer-events:auto;
+}
+
+
+.material-row{
+display:flex;
+gap:10px;
+margin-bottom:10px;
+align-items:center;
+}
+
+.material-select{
+flex:2;
+padding:10px;
+border:1px solid #ddd;
+border-radius:8px;
+}
+
+.material-qty{
+flex:1;
+padding:10px;
+border:1px solid #ddd;
+border-radius:8px;
+}
+
+.material-remove{
+background:#ff4d4d;
+border:none;
+color:#fff;
+padding:10px 14px;
+border-radius:8px;
+cursor:pointer;
+display:flex;
+align-items:center;
+justify-content:center;
+}
+
+.material-remove:hover{
+background:#e60000;
+}
+
+/* ========================= */
+/* MOBILE PRODUCT CARD FIX */
+/* ========================= */
+
+@media (max-width:768px){
+
+/* container padding */
+.container{
+padding:12px;
+}
+
+/* search + filter stack */
+.container > div:first-child{
+display:flex;
+flex-direction:column;
+gap:10px;
+}
+
+.container input,
+.container select,
+.add-btn{
+width:100% !important;
+box-sizing:border-box;
+}
+
+/* table card wrapper */
+.table-card{
+padding:10px;
+overflow:hidden;
+}
+
+/* convert rows to cards */
+#inventoryTable thead{
+display:none;
+}
+
+#inventoryTable,
+#inventoryTable tbody{
+display:block;
+width:100%;
+}
+
+#inventoryTable tr{
+display:block;
+background:#fff;
+border-radius:12px;
+padding:12px;
+margin-bottom:12px;
+box-shadow:0 2px 6px rgba(0,0,0,0.06);
+}
+
+/* each row content */
+#inventoryTable td{
+display:flex;
+align-items:center;
+justify-content:space-between;
+padding:6px 0;
+border:none;
+font-size:14px;
+}
+
+/* labels */
+#inventoryTable td::before{
+font-weight:600;
+color:#666;
+flex:1;
+text-align:left;
+}
+
+/* values */
+#inventoryTable td > *{
+flex:1;
+text-align:right;
+}
+
+/* image row special layout */
+#inventoryTable td:first-child{
+flex-direction:column;
+align-items:flex-start;
+gap:8px;
+}
+
+#inventoryTable td:first-child::before{
+content:"Image";
+}
+
+.product-img{
+width:100%;
+max-width:120px;
+height:auto;
+border-radius:10px;
+}
+
+/* labels mapping */
+#inventoryTable td:nth-child(2)::before{content:"Name";}
+#inventoryTable td:nth-child(3)::before{content:"Category";}
+#inventoryTable td:nth-child(4)::before{content:"Price";}
+#inventoryTable td:nth-child(5)::before{content:"Stock";}
+#inventoryTable td:nth-child(6)::before{content:"Date";}
+#inventoryTable td:nth-child(7)::before{content:"Action";}
+
+/* action buttons */
+.action-wrapper{
+justify-content:flex-end;
+width:100%;
+}
+
+/* ========================= */
+/* MOBILE MODAL FIX */
+/* ========================= */
+
+.modal{
+padding:12px;
+align-items:flex-end;
+}
+
+.modal-content{
+width:100%;
+max-width:100%;
+border-radius:16px 16px 0 0;
+padding:16px;
+max-height:90vh;
+overflow-y:auto;
+animation:slideUp 0.25s ease;
+}
+
+/* better inputs */
+.modal-content input,
+.modal-content select,
+.modal-content textarea{
+font-size:16px;
+padding:14px;
+}
+
+/* full width button */
+.modal-content button{
+width:100%;
+padding:14px;
+font-size:16px;
+border-radius:10px;
+}
+
+/* animation */
+@keyframes slideUp{
+from{
+transform:translateY(100%);
+opacity:0;
+}
+to{
+transform:translateY(0);
+opacity:1;
+}
+}
+
+}
+
+
+/* ========================= */
+/* MOBILE SERVICES CARD FIX */
+/* ========================= */
+
+@media (max-width:768px){
+
+/* hide services table header */
+#serviceTable thead{
+display:none;
+}
+
+/* block layout */
+#serviceTable,
+#serviceTable tbody{
+display:block;
+width:100%;
+}
+
+/* each service row becomes card */
+#serviceTable tr{
+display:block;
+background:#fff;
+border-radius:12px;
+padding:12px;
+margin-bottom:12px;
+box-shadow:0 2px 6px rgba(0,0,0,0.06);
+}
+
+/* each field stacked */
+#serviceTable td{
+display:flex;
+align-items:center;
+justify-content:space-between;
+padding:6px 0;
+border:none;
+font-size:14px;
+}
+
+/* labels */
+#serviceTable td::before{
+font-weight:600;
+color:#666;
+flex:1;
+text-align:left;
+}
+
+/* values */
+#serviceTable td > *{
+flex:1;
+text-align:right;
+}
+
+/* image layout */
+#serviceTable td:first-child{
+flex-direction:column;
+align-items:flex-start;
+gap:8px;
+}
+
+#serviceTable td:first-child::before{
+content:"Image";
+}
+
+/* image style */
+#serviceTable img{
+width:100%;
+max-width:120px;
+height:auto;
+border-radius:10px;
+}
+
+/* labels mapping */
+#serviceTable td:nth-child(2)::before{content:"Name";}
+#serviceTable td:nth-child(3)::before{content:"Description";}
+#serviceTable td:nth-child(4)::before{content:"Price";}
+#serviceTable td:nth-child(5)::before{content:"Duration";}
+#serviceTable td:nth-child(6)::before{content:"Date";}
+#serviceTable td:nth-child(7)::before{content:"Action";}
+
+/* action buttons aligned right */
+#serviceTable .action-wrapper{
+justify-content:flex-end;
+width:100%;
+}
+
+/* ========================= */
+/* MOBILE MODAL FULL FIX */
+/* ========================= */
+
+@media (max-width:768px){
+
+/* modal background */
+.modal{
+align-items:flex-end;
+padding:0;
+}
+
+/* modal container */
+.modal-content{
+width:100%;
+max-width:100%;
+border-radius:18px 18px 0 0;
+padding:16px;
+padding-bottom:20px;
+max-height:90vh;
+overflow-y:auto;
+box-sizing:border-box;
+animation:modalSlideUp 0.25s ease;
+}
+
+/* prevent overflow */
+.modal-content form{
+width:100%;
+display:flex;
+flex-direction:column;
+gap:12px;
+}
+
+/* fix inputs */
+.modal-content input,
+.modal-content select,
+.modal-content textarea{
+width:100%;
+font-size:16px;
+padding:14px;
+border-radius:10px;
+box-sizing:border-box;
+}
+
+/* fix file input */
+.modal-content input[type="file"]{
+padding:10px;
+background:#fff;
+}
+
+/* fix textarea height */
+.modal-content textarea{
+min-height:80px;
+resize:none;
+}
+
+/* fix button */
+.modal-content button{
+width:100%;
+padding:15px;
+font-size:16px;
+border-radius:12px;
+margin-top:5px;
+}
+
+/* safe bottom space */
+.modal-content::after{
+content:"";
+display:block;
+height:10px;
+}
+
+/* smooth animation */
+@keyframes modalSlideUp{
+from{
+transform:translateY(100%);
+opacity:0;
+}
+to{
+transform:translateY(0);
+opacity:1;
+}
+}
+
+/* fix keyboard overlap */
+.modal{
+overflow:hidden;
+}
+
+.modal.show{
+overflow:auto;
+}
+
+}
+
+/* ========================= */
+/* FIX MOBILE DROPDOWN CUT OFF */
+/* ========================= */
+
+.dropdown{
+position:fixed;
+z-index:9999;
+min-width:150px;
+max-width:calc(100vw - 20px);
+box-sizing:border-box;
+}
+
+/* prevent overflow outside screen */
+.dropdown.show{
+display:block;
+}
+
+/* mobile specific fix */
+@media (max-width:768px){
+
+.dropdown{
+right:10px !important;
+left:auto !important;
+top:auto;
+bottom:80px;
+}
+
+}
+
+/* ensure container doesn't hide dropdown */
+.container{
+overflow:visible;
+}
+
+/* ensure action wrapper allows overflow */
+.action-wrapper{
+position:relative;
+overflow:visible;
+}
+
+/* ========================= */
+/* PERFECT BOTTOM SPACE */
+/* ========================= */
+
+.container{
+padding-bottom:70px;
+}
+
+.table-card{
+margin-bottom:70px;
+}
+
+/* mobile only */
+@media (max-width:768px){
+
+.container{
+padding-bottom:90px;
+}
+
+.table-card{
+margin-bottom:90px;
+}
+
+}
+
+/* future bottom nav support */
+.bottom-nav{
+height:70px;
+}
+
+body.with-bottom-nav .container{
+padding-bottom:90px;
+}
+
+/* ========================= */
+/* FINAL MOBILE MODAL BUTTON FIX */
+/* ========================= */
+
+@media (max-width:768px){
+
+.modal{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.4);
+display:none;              /* MUST be none */
+align-items:flex-end;
+justify-content:center;
+padding:0;
+z-index:999;
+}
+
+/* only show when active */
+.modal.show{
+display:flex;
+}
+
+
+.modal-content{
+width:100%;
+max-width:100%;
+border-radius:18px 18px 0 0;
+padding:16px;
+padding-bottom:30px;
+max-height:92vh;
+overflow-y:auto;
+box-sizing:border-box;
+}
+
+/* ensure form doesn't cut off */
+.modal-content form{
+display:flex;
+flex-direction:column;
+gap:12px;
+padding-bottom:20px;
+}
+
+/* ensure button always visible */
+.modal-content button{
+width:100%;
+padding:16px;
+margin-top:10px;
+margin-bottom:10px;
+flex-shrink:0;
+}
+
+/* extra safe bottom space */
+.modal-content::after{
+content:"";
+display:block;
+height:25px;
+flex-shrink:0;
+}
+
+/* fix keyboard overlap */
+.modal.show{
+overflow-y:auto;
+}
+
+}
+
+/* desktop safe spacing */
+.modal-content{
+padding-bottom:25px;
+}
+
+
+/* ========================= */
+/* MOBILE VIEW MODAL SCROLL FIX */
+/* ========================= */
+
+@media (max-width:768px){
+
+#viewModal{
+display:none;
+align-items:flex-end;
+justify-content:center;
+}
+
+#viewModal.show{
+display:flex;
+}
+
+#viewModal .modal-content{
+width:100%;
+max-width:100%;
+border-radius:18px 18px 0 0;
+padding:16px;
+padding-bottom:40px;
+max-height:90vh;
+overflow-y:auto;
+box-sizing:border-box;
+}
+
+/* make all fields visible */
+#viewModal .modal-content div{
+margin-bottom:12px;
+font-size:15px;
+}
+
+/* ensure expiration visible */
+#view_exp{
+display:block;
+margin-top:4px;
+font-weight:500;
+color:#333;
+}
+
+/* fix image size */
+#view_image{
+width:100%;
+height:auto;
+max-height:180px;
+object-fit:cover;
+border-radius:10px;
+}
+
+}
+/* ========================= */
+/* MOBILE EXPIRATION CARD FIX */
+/* ========================= */
+
+@media (max-width:768px){
+
+/* hide expiration table header */
+#expirationTable thead{
+display:none;
+}
+
+/* block layout */
+#expirationTable,
+#expirationTable tbody{
+display:block;
+width:100%;
+}
+
+/* each expiration becomes card */
+#expirationTable tr{
+display:block;
+background:#fff;
+border-radius:12px;
+padding:12px;
+margin-bottom:12px;
+box-shadow:0 2px 6px rgba(0,0,0,0.06);
+}
+
+/* each row field stacked */
+#expirationTable td{
+display:flex;
+align-items:center;
+justify-content:space-between;
+padding:6px 0;
+border:none;
+font-size:14px;
+}
+
+/* labels */
+#expirationTable td::before{
+font-weight:600;
+color:#666;
+flex:1;
+text-align:left;
+}
+
+/* values */
+#expirationTable td > *{
+flex:1;
+text-align:right;
+}
+
+/* image layout */
+#expirationTable td:first-child{
+flex-direction:column;
+align-items:flex-start;
+gap:8px;
+}
+
+#expirationTable td:first-child::before{
+content:"Image";
+}
+
+/* image style */
+#expirationTable img{
+width:100%;
+max-width:120px;
+height:auto;
+border-radius:10px;
+}
+
+/* label mapping */
+#expirationTable td:nth-child(2)::before{content:"Name";}
+#expirationTable td:nth-child(3)::before{content:"Category";}
+#expirationTable td:nth-child(4)::before{content:"Stock";}
+#expirationTable td:nth-child(5)::before{content:"Expiration";}
+#expirationTable td:nth-child(6)::before{content:"Status";}
+#expirationTable td:nth-child(7)::before{content:"Action";}
+
+/* align action */
+#expirationTable .action-wrapper{
+justify-content:flex-end;
+width:100%;
+}
+
+}
+.product-card{
+    background:#fff;
+    border-radius:14px;
+    overflow:hidden;
+    box-shadow:0 5px 12px rgba(0,0,0,0.06);
+    transition:0.2s;
+    cursor:pointer;
+}
+
+.product-card:hover{
+    transform:translateY(-4px);
+    box-shadow:0 10px 18px rgba(0,0,0,0.12);
+}
+
+}

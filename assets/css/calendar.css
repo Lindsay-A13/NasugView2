@@ -1,0 +1,387 @@
+/* ===============================
+   BASE
+=================================*/
+html,
+body{
+height:100%;
+margin:0;
+font-family:Arial,sans-serif;
+background:#ffffff;
+overflow-x:hidden; /* HARD STOP horizontal overlap */
+}
+
+*{
+box-sizing:border-box;
+}
+
+/* ===============================
+   PAGE WRAPPER
+=================================*/
+.page-wrapper{
+min-height:100vh;
+display:flex;
+flex-direction:column;
+overflow-x:hidden;
+}
+
+/* ===============================
+   HEADER
+=================================*/
+.header{
+display:flex;
+justify-content:center;
+align-items:center;
+padding:12px;
+border-bottom:1px solid #eee;
+background:#fff;
+flex-shrink:0;
+}
+
+.header img{
+height:36px;
+}
+
+/* ===============================
+   CONTAINER
+=================================*/
+.container{
+width:100%;
+max-width:1100px;
+margin:0 auto;
+padding:12px;
+padding-bottom:75px;
+flex:1;
+overflow-x:hidden; /* FIX */
+}
+
+/* ===============================
+   CALENDAR CARD
+=================================*/
+.calendar{
+background:#fff;
+border-radius:14px;
+padding:12px;
+border:1px solid #eee;
+box-shadow:0 4px 12px rgba(0,0,0,0.04);
+overflow:hidden; /* VERY IMPORTANT */
+}
+
+/* ===============================
+   CALENDAR HEADER
+=================================*/
+.calendar-header{
+display:flex;
+flex-direction:column;
+gap:8px;
+margin-bottom:10px;
+}
+
+.calendar-title{
+font-size:22px;
+font-weight:700;
+color:#001a47;
+text-align:center;
+}
+
+.calendar-nav{
+display:flex;
+justify-content:center;
+align-items:center;
+gap:16px;
+}
+
+.calendar-nav button{
+border:none;
+background:#f1f3f7;
+width:36px;
+height:36px;
+border-radius:50%;
+font-size:16px;
+cursor:pointer;
+color:#001a47;
+flex-shrink:0;
+}
+
+#monthYear{
+font-weight:700;
+font-size:22px;
+color:#001a47;
+white-space:nowrap;
+}
+
+/* ===============================
+   GRID (DESKTOP DEFAULT)
+=================================*/
+.calendar-grid{
+display:grid;
+grid-template-columns:repeat(7,minmax(0,1fr)); /* FIX OVERFLOW */
+gap:8px;
+width:100%;
+}
+
+/* DAY NAMES */
+.day-name{
+font-size:13px;
+font-weight:700;
+text-align:center;
+color:#555;
+padding:6px 0;
+min-width:0;
+}
+
+/* DAY CELL */
+.day{
+background:#f8f9fb;
+border-radius:10px;
+padding:6px;
+aspect-ratio:1/1;
+display:flex;
+flex-direction:column;
+overflow:hidden;
+min-width:0;
+}
+
+/* DAY NUMBER */
+.day-number{
+font-size:13px;
+font-weight:700;
+color:#001a47;
+margin-bottom:3px;
+line-height:1.2;
+}
+
+/* EVENTS */
+.day-events{
+display:flex;
+flex-direction:column;
+gap:2px;
+overflow:hidden;
+min-width:0;
+}
+
+.day-event{
+font-size:10px;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+line-height:1.2;
+}
+
+.day-more{
+font-size:10px;
+color:#cc0000;
+font-weight:600;
+}
+
+/* ===============================
+   MODAL
+=================================*/
+.modal-overlay{
+display:none;
+position:fixed;
+inset:0;
+background:rgba(0,0,0,0.45);
+justify-content:center;
+align-items:center;
+padding:14px;
+z-index:999;
+}
+
+.modal-overlay.show{
+display:flex;
+}
+
+.modal-box{
+background:#fff;
+width:100%;
+max-width:520px;
+border-radius:18px;
+padding:20px;
+max-height:85vh;
+overflow-y:auto;
+}
+
+.modal-header{
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:12px;
+font-weight:700;
+color:#001a47;
+}
+
+.modal-close{
+border:none;
+background:none;
+font-size:20px;
+cursor:pointer;
+}
+
+/* SLIDER HEADER */
+.slider-header{
+position:relative;
+display:flex;
+justify-content:center;
+align-items:center;
+min-height:50px;
+margin:10px 0 20px;
+border-bottom:1px solid #eee;
+padding-bottom:14px;
+}
+
+.slider-title{
+font-size:18px;
+font-weight:700;
+color:#001a47;
+text-align:center;
+max-width:70%;
+}
+
+.slider-btn{
+position:absolute;
+top:50%;
+transform:translateY(-50%);
+width:34px;
+height:34px;
+border:none;
+border-radius:50%;
+background:#eef1f7;
+cursor:pointer;
+}
+
+#prevBtn{left:0;}
+#nextBtn{right:0;}
+
+/* EVENT CONTENT */
+.event-description{
+font-size:15px;
+line-height:1.7;
+color:#444;
+margin-bottom:20px;
+}
+
+.event-info{
+background:#f4f6fb;
+border-radius:14px;
+padding:16px;
+display:flex;
+flex-direction:column;
+gap:14px;
+margin-bottom:20px;
+}
+
+.info-label{
+font-size:11px;
+color:#888;
+text-transform:uppercase;
+}
+
+.info-value{
+font-size:15px;
+font-weight:600;
+color:#001a47;
+}
+
+.register-btn{
+width:100%;
+padding:14px;
+border:none;
+border-radius:12px;
+background:#001a47;
+color:#fff;
+font-size:16px;
+cursor:pointer;
+}
+
+.no-events{
+text-align:center;
+padding:35px 10px;
+color:#888;
+}
+
+/* ===============================
+   MOBILE FIX (REAL OVERLAP FIX)
+=================================*/
+@media (max-width:768px){
+
+/* THIS IS THE MAIN FIX */
+.calendar-grid{
+grid-template-columns:repeat(7,0fr); /* prevents stretching */
+justify-content:space-between;
+gap:3px;
+}
+
+/* FORCE FIT ALL 7 COLUMNS */
+.day,
+.day-name{
+width:calc((100vw - 48px) / 7); 
+max-width:100%;
+}
+
+/* remove square forcing */
+.day{
+aspect-ratio:auto;
+height:54px; /* FIXES OVERLAP */
+padding:4px;
+border-radius:8px;
+}
+
+.day-number{
+font-size:11px;
+margin-bottom:2px;
+}
+
+.day-event{
+font-size:7px;
+line-height:1.1;
+}
+
+.day-more{
+font-size:7px;
+}
+
+.calendar-title{
+font-size:30px;
+}
+
+#monthYear{
+font-size:28px;
+}
+
+.container{
+padding:8px;
+padding-bottom:75px;
+}
+
+.calendar{
+padding:8px;
+}
+}
+
+/* ===============================
+   SMALL MOBILE
+=================================*/
+@media (max-width:400px){
+
+.day,
+.day-name{
+width:calc((100vw - 32px) / 7);
+}
+
+.day{
+height:50px;
+padding:3px;
+}
+
+.day-number{
+font-size:10px;
+}
+
+.day-event{
+font-size:6px;
+}
+
+.day-more{
+font-size:6px;
+}
+}
