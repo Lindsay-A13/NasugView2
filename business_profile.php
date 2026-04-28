@@ -2,6 +2,39 @@
 require_once "config/session.php";
 require_once "config/db.php";
 
+function ensureBusinessLocationColumns(mysqli $conn): void {
+    $requiredColumns = [
+        "latitude" => "ALTER TABLE business_owner ADD COLUMN latitude DECIMAL(10,7) NULL AFTER address",
+        "longitude" => "ALTER TABLE business_owner ADD COLUMN longitude DECIMAL(10,7) NULL AFTER latitude"
+    ];
+
+    foreach($requiredColumns as $column => $sql){
+        $check = $conn->prepare("
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'business_owner'
+              AND COLUMN_NAME = ?
+            LIMIT 1
+        ");
+
+        if(!$check){
+            continue;
+        }
+
+        $check->bind_param("s", $column);
+        $check->execute();
+        $exists = $check->get_result()->num_rows > 0;
+        $check->close();
+
+        if(!$exists){
+            $conn->query($sql);
+        }
+    }
+}
+
+ensureBusinessLocationColumns($conn);
+
 if($_SESSION['account_type'] !== "business_owner"){
     header("Location: more.php");
     exit;
@@ -11,7 +44,7 @@ $owner_id = $_SESSION['user_id'];
 
 /* LOAD BUSINESS DATA */
 $stmt = $conn->prepare("
-    SELECT business_name, description, phone, business_photo, address
+    SELECT business_name, description, phone, business_photo, address, latitude, longitude
     FROM business_owner
     WHERE b_id = ?
 ");
@@ -28,6 +61,11 @@ if(isset($_POST['save'])){
     $description   = trim($_POST['description']);
     $phone         = trim($_POST['phone']);
     $address       = trim($_POST['address']);
+    $latitude      = trim($_POST['latitude'] ?? '');
+    $longitude     = trim($_POST['longitude'] ?? '');
+
+    $latitude = $latitude !== '' ? (string) ((float) $latitude) : '';
+    $longitude = $longitude !== '' ? (string) ((float) $longitude) : '';
 
     $cover_name = $data['business_photo'];
 
@@ -38,16 +76,21 @@ if(isset($_POST['save'])){
 
     $update = $conn->prepare("
         UPDATE business_owner
-        SET business_name=?, description=?, phone=?, address=?, business_photo=?
+        SET business_name=?, description=?, phone=?, address=?,
+            latitude=NULLIF(?, ''),
+            longitude=NULLIF(?, ''),
+            business_photo=?
         WHERE b_id=?
     ");
 
     $update->bind_param(
-        "sssssi",
+        "sssssssi",
         $business_name,
         $description,
         $phone,
         $address,
+        $latitude,
+        $longitude,
         $cover_name,
         $owner_id
     );
@@ -71,7 +114,6 @@ $product_stmt->execute();
 $products = $product_stmt->get_result();
 
 
-$conn->close();
 ?>
 
 <!DOCTYPE html>
@@ -80,6 +122,7 @@ $conn->close();
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Business Profile</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
 *{box-sizing:border-box;}
@@ -112,6 +155,31 @@ body{margin:0;font-family:Arial;background:#ffff;}
 
 .info{margin:10px 0;color:#444;}
 .description{margin-top:15px;color:#555;line-height:1.6;}
+.profile-map-wrap{margin-top:18px;}
+.profile-map-label{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-bottom:10px;
+    color:#334155;
+    font-size:14px;
+    font-weight:600;
+}
+.profile-map{
+    height:220px;
+    border-radius:14px;
+    overflow:hidden;
+    border:1px solid #dbe3ee;
+    background:#eef2f7;
+}
+.profile-map-empty{
+    padding:18px;
+    border:1px dashed #cbd5e1;
+    border-radius:14px;
+    background:#f8fafc;
+    color:#64748b;
+    font-size:14px;
+}
 
 .edit-btn{
     position:absolute;
@@ -170,8 +238,9 @@ body{margin:0;font-family:Arial;background:#ffff;}
     display:none;
     align-items:center;
     justify-content:center;
-    padding:25px;
+    padding:18px;
     z-index:999;
+    overflow-y:auto;
 }
 
 .modal{
@@ -179,7 +248,10 @@ body{margin:0;font-family:Arial;background:#ffff;}
     width:100%;
     max-width:520px;
     border-radius:18px;
-    padding:35px;
+    padding:28px;
+    max-height:min(92vh, 860px);
+    overflow-y:auto;
+    margin:auto;
 }
 
 .modal h3{
@@ -200,6 +272,58 @@ body{margin:0;font-family:Arial;background:#ffff;}
 
 .modal textarea{height:120px;resize:none;}
 
+.location-panel{
+    padding:16px;
+    border:1px solid #e5e7eb;
+    border-radius:14px;
+    background:#f8fafc;
+}
+
+.location-panel h4{
+    margin:0 0 8px;
+    color:#001a47;
+    font-size:15px;
+}
+
+.location-help{
+    margin:0 0 12px;
+    font-size:13px;
+    color:#64748b;
+    line-height:1.5;
+}
+
+.map-toolbar{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:12px;
+}
+
+.map-toolbar button{
+    width:auto;
+    padding:10px 14px;
+    border-radius:10px;
+    font-size:14px;
+}
+
+.map-toolbar .secondary-btn{
+    background:#e2e8f0;
+    color:#0f172a;
+}
+
+#pinMap{
+    height:280px;
+    border-radius:12px;
+    overflow:hidden;
+    border:1px solid #cbd5e1;
+}
+
+.coord-preview{
+    margin-top:10px;
+    font-size:13px;
+    color:#475569;
+}
+
 .modal button{
     width:100%;
     padding:16px;
@@ -209,6 +333,33 @@ body{margin:0;font-family:Arial;background:#ffff;}
     color:#fff;
     font-weight:600;
     cursor:pointer;
+}
+
+@media (max-width:768px){
+    .container{padding:14px;padding-bottom:110px;}
+    .content{padding:20px 16px;}
+    .cover{height:220px;}
+    .profile-map{height:180px;}
+    .modal-overlay{
+        align-items:flex-end;
+        padding:10px;
+    }
+    .modal{
+        max-width:none;
+        border-radius:18px 18px 0 0;
+        padding:18px 16px 22px;
+        max-height:calc(100vh - 12px);
+    }
+    .modal h3{margin-bottom:18px;font-size:20px;}
+    .modal input,
+    .modal textarea{
+        font-size:16px;
+        padding:13px;
+    }
+    #pinMap{height:240px;}
+    .map-toolbar button{
+        flex:1 1 180px;
+    }
 }
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
@@ -242,17 +393,24 @@ if(!empty($data['business_photo'])){
             </div>
 
             <div class="info">
-                <i class="fa fa-location-dot"></i>
-                <?php echo htmlspecialchars($data['address'] ?? 'No address'); ?>
-            </div>
-
-            <div class="info">
                 <i class="fa fa-phone"></i>
                 <?php echo htmlspecialchars($data['phone'] ?? 'No phone'); ?>
             </div>
 
             <div class="description">
                 <?php echo htmlspecialchars($data['description'] ?? 'No description yet.'); ?>
+            </div>
+
+            <div class="profile-map-wrap">
+                <div class="profile-map-label">
+                    <i class="fa fa-map-pin"></i>
+                    Business Pin
+                </div>
+                <?php if(!empty($data['latitude']) && !empty($data['longitude'])): ?>
+                    <div id="profileMap" class="profile-map"></div>
+                <?php else: ?>
+                    <div class="profile-map-empty">No pin placed yet. Use Edit Business Information to set the business location on the map.</div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -361,6 +519,26 @@ if(!empty($data['business_photo'])){
             </div>
 
             <div class="form-group">
+                <div class="location-panel">
+                    <h4>Business Pin</h4>
+                    <p class="location-help">Click on the map to place the exact business pin. Marketplace distance will use this location.</p>
+
+                    <div class="map-toolbar">
+                        <button type="button" onclick="useCurrentLocation()">Use Current Location</button>
+                        <button type="button" class="secondary-btn" onclick="clearPin()">Clear Pin</button>
+                    </div>
+
+                    <div id="pinMap"></div>
+                    <div class="coord-preview" id="coordPreview">No map pin selected.</div>
+
+                    <input type="hidden" name="latitude" id="latitudeInput"
+                           value="<?php echo htmlspecialchars($data['latitude'] ?? ''); ?>">
+                    <input type="hidden" name="longitude" id="longitudeInput"
+                           value="<?php echo htmlspecialchars($data['longitude'] ?? ''); ?>">
+                </div>
+            </div>
+
+            <div class="form-group">
                 <input type="text" name="phone"
                        value="<?php echo htmlspecialchars($data['phone'] ?? ''); ?>"
                        placeholder="Phone">
@@ -377,8 +555,21 @@ if(!empty($data['business_photo'])){
 </div>
 
 <script>
+let pinMap;
+let pinMarker = null;
+let profileMap = null;
+const latitudeInput = document.getElementById("latitudeInput");
+const longitudeInput = document.getElementById("longitudeInput");
+const coordPreview = document.getElementById("coordPreview");
+
 function openModal(){
     document.getElementById("editModal").style.display = "flex";
+    setTimeout(() => {
+        initPinMap();
+        if(pinMap){
+            pinMap.invalidateSize();
+        }
+    }, 50);
 }
 
 window.onclick = function(e){
@@ -392,6 +583,131 @@ function showFileName(input){
         document.getElementById("fileName").value = input.files[0].name;
     }
 }
+
+function updateCoordPreview(lat, lng){
+    if(lat === null || lng === null){
+        coordPreview.textContent = "No map pin selected.";
+        return;
+    }
+
+    coordPreview.textContent = "Selected pin: " + Number(lat).toFixed(6) + ", " + Number(lng).toFixed(6);
+}
+
+function setPin(lat, lng, recenter = true){
+    latitudeInput.value = Number(lat).toFixed(7);
+    longitudeInput.value = Number(lng).toFixed(7);
+
+    if(pinMarker){
+        pinMarker.setLatLng([lat, lng]);
+    }else{
+        pinMarker = L.marker([lat, lng], {draggable:true}).addTo(pinMap);
+        pinMarker.on("dragend", function(e){
+            const pos = e.target.getLatLng();
+            setPin(pos.lat, pos.lng, false);
+        });
+    }
+
+    if(recenter){
+        pinMap.setView([lat, lng], 16);
+    }
+
+    updateCoordPreview(lat, lng);
+}
+
+function clearPin(){
+    latitudeInput.value = "";
+    longitudeInput.value = "";
+
+    if(pinMarker){
+        pinMap.removeLayer(pinMarker);
+        pinMarker = null;
+    }
+
+    updateCoordPreview(null, null);
+}
+
+function useCurrentLocation(){
+    if(!navigator.geolocation){
+        alert("Geolocation is not supported on this device.");
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition(position => {
+        setPin(position.coords.latitude, position.coords.longitude);
+    }, () => {
+        alert("Unable to get your current location.");
+    }, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 300000
+    });
+}
+
+function initPinMap(){
+    if(pinMap){
+        return;
+    }
+
+    const defaultLat = parseFloat(latitudeInput.value || "14.0667");
+    const defaultLng = parseFloat(longitudeInput.value || "120.6333");
+    const hasSavedPin = latitudeInput.value !== "" && longitudeInput.value !== "";
+
+    pinMap = L.map("pinMap");
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap"
+    }).addTo(pinMap);
+
+    pinMap.setView([defaultLat, defaultLng], hasSavedPin ? 16 : 13);
+
+    pinMap.on("click", function(e){
+        setPin(e.latlng.lat, e.latlng.lng, false);
+    });
+
+    if(hasSavedPin){
+        setPin(defaultLat, defaultLng, false);
+    }else{
+        updateCoordPreview(null, null);
+    }
+}
+</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+function initProfileMap(){
+    const mapEl = document.getElementById("profileMap");
+
+    if(!mapEl || profileMap){
+        return;
+    }
+
+    const lat = parseFloat("<?php echo htmlspecialchars((string) ($data['latitude'] ?? '')); ?>");
+    const lng = parseFloat("<?php echo htmlspecialchars((string) ($data['longitude'] ?? '')); ?>");
+
+    if(!Number.isFinite(lat) || !Number.isFinite(lng)){
+        return;
+    }
+
+    profileMap = L.map("profileMap", {
+        zoomControl: false,
+        dragging: true,
+        scrollWheelZoom: false
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap"
+    }).addTo(profileMap);
+
+    profileMap.setView([lat, lng], 16);
+    L.marker([lat, lng]).addTo(profileMap);
+
+    setTimeout(() => {
+        profileMap.invalidateSize();
+    }, 50);
+}
+
+initProfileMap();
 </script>
 
 <?php include 'bottom_nav.php'; ?>

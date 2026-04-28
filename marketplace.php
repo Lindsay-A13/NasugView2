@@ -3,6 +3,39 @@ session_start();
 require_once "config/db.php";
 require_once "config/cart_count.php";
 
+function ensureBusinessLocationColumns(mysqli $conn): void {
+    $requiredColumns = [
+        "latitude" => "ALTER TABLE business_owner ADD COLUMN latitude DECIMAL(10,7) NULL AFTER address",
+        "longitude" => "ALTER TABLE business_owner ADD COLUMN longitude DECIMAL(10,7) NULL AFTER latitude"
+    ];
+
+    foreach($requiredColumns as $column => $sql){
+        $check = $conn->prepare("
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'business_owner'
+              AND COLUMN_NAME = ?
+            LIMIT 1
+        ");
+
+        if(!$check){
+            continue;
+        }
+
+        $check->bind_param("s", $column);
+        $check->execute();
+        $exists = $check->get_result()->num_rows > 0;
+        $check->close();
+
+        if(!$exists){
+            $conn->query($sql);
+        }
+    }
+}
+
+ensureBusinessLocationColumns($conn);
+
 $createProductReviewsTableSql = "
 CREATE TABLE IF NOT EXISTS product_reviews (
     id INT(11) NOT NULL AUTO_INCREMENT,
@@ -48,6 +81,9 @@ $product_stmt = $conn->prepare("
         c.category_id,
         c.category_name,
         b.business_name,
+        b.address,
+        b.latitude,
+        b.longitude,
         COALESCE(pr.avg_rating, 0) AS avg_rating,
         COALESCE(pr.total_reviews, 0) AS total_reviews
     FROM inventory i
@@ -79,6 +115,9 @@ $service_stmt = $conn->prepare("
         s.image,
         s.duration,
         b.business_name,
+        b.address,
+        b.latitude,
+        b.longitude,
         b.b_id AS owner_id,
         c.category_id,
         c.category_name,
@@ -117,6 +156,9 @@ $business_stmt = $conn->prepare("
         b.b_id,
         b.business_name,
         b.business_photo,
+        b.address,
+        b.latitude,
+        b.longitude,
         b.category_id,
         c.category_name,
         ROUND(AVG(r.experience_rating),1) AS avg_rating,
@@ -175,9 +217,12 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 .product-body,.business-body{padding:10px}
 
 .product-name,.business-name{font-weight:bold;font-size:14px;color:#001a47}
+.meta-line{font-size:12px;color:#666;margin-top:4px}
+.distance-line{font-size:12px;color:#0f766e;margin-top:6px;font-weight:600}
 
 .stars{font-size:13px;margin-top:4px}
 .stars i{color:#ccc}
+.stars i.fa-star{color:#001a47}
 .business .stars i.fa-star{color:#001a47}
 
 .hidden{display:none}
@@ -207,6 +252,7 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 <!-- CATEGORY BAR -->
 <div class="category-bar">
   <button class="category-btn active" data-category="all">All</button>
+  <button class="category-btn" data-category="nearby">Nearby</button>
   <?php while($cat=$categories->fetch_assoc()): ?>
     <button class="category-btn" data-category="<?= $cat['category_id']; ?>">
       <?= htmlspecialchars($cat['category_name']); ?>
@@ -248,11 +294,15 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
    data-categoryname="<?= strtolower($row['category_name']); ?>"
    data-productcategory="<?= strtolower($row['inventory_category_name']); ?>"
    data-business="<?= strtolower($row['business_name']); ?>"
+   data-address="<?= htmlspecialchars($row['address'] ?? '', ENT_QUOTES); ?>"
+   data-latitude="<?= htmlspecialchars($row['latitude'] ?? '', ENT_QUOTES); ?>"
+   data-longitude="<?= htmlspecialchars($row['longitude'] ?? '', ENT_QUOTES); ?>"
    data-owner="<?= $row['owner_id']; ?>"
    data-rating="<?= round($row['avg_rating']); ?>">
     <img src="uploads/product/<?= $row['image'] ?: 'default_product.jpg'; ?>">
     <div class="product-body">
       <div class="product-name"><?= htmlspecialchars($row['name']); ?></div>
+      <div class="meta-line"><?= htmlspecialchars($row['business_name']); ?></div>
       <div>₱<?= number_format($row['price'],2); ?></div>
       <div class="stars">
         <?php $rating = round($row['avg_rating']); for($i=1;$i<=5;$i++): ?>
@@ -263,6 +313,7 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
         <?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>
         (<?= (int) $row['total_reviews']; ?>)
       </div>
+      <div class="distance-line" data-distance-label>Distance unavailable</div>
     </div>
 </a>
 <?php endwhile; ?>
@@ -288,6 +339,9 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
    data-category="<?= $row['category_id']; ?>"
    data-categoryname="<?= strtolower($row['category_name']); ?>"
    data-business="<?= strtolower($row['business_name']); ?>"
+   data-address="<?= htmlspecialchars($row['address'] ?? '', ENT_QUOTES); ?>"
+   data-latitude="<?= htmlspecialchars($row['latitude'] ?? '', ENT_QUOTES); ?>"
+   data-longitude="<?= htmlspecialchars($row['longitude'] ?? '', ENT_QUOTES); ?>"
    data-owner="<?= $row['owner_id']; ?>"
    data-rating="<?= round($row['avg_rating']); ?>">
 
@@ -317,6 +371,7 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
         <div style="font-size:12px;color:#888;">
             <?= $row['duration']; ?> mins (duration)
         </div>
+        <div class="distance-line" data-distance-label>Distance unavailable</div>
     </div>
 
 </a>
@@ -342,6 +397,9 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
    data-name="<?= strtolower($biz['business_name']); ?>"
    data-category="<?= $biz['category_id']; ?>"
    data-categoryname="<?= strtolower($biz['category_name']); ?>"
+   data-address="<?= htmlspecialchars($biz['address'] ?? '', ENT_QUOTES); ?>"
+   data-latitude="<?= htmlspecialchars($biz['latitude'] ?? '', ENT_QUOTES); ?>"
+   data-longitude="<?= htmlspecialchars($biz['longitude'] ?? '', ENT_QUOTES); ?>"
    data-rating="<?= round($biz['avg_rating']); ?>">
 <?php 
 $img = !empty($biz['business_photo']) 
@@ -364,6 +422,7 @@ $img = !empty($biz['business_photo'])
         <?= $biz['avg_rating'] ? $biz['avg_rating'] : '0.0' ?>
         (<?= $biz['total_reviews']; ?>)
       </div>
+      <div class="distance-line" data-distance-label>Distance unavailable</div>
     </div>
 </a>
 <?php endwhile; ?>
@@ -387,6 +446,218 @@ const priceSort = document.getElementById('priceSort');
 
 let activeCategory = "all";
 let activeRating = null;
+let userCoords = null;
+const geocodeCacheKey = "marketplaceGeocodeCache";
+let geocodeCache = {};
+const originalCardOrder = new Map();
+
+try{
+  geocodeCache = JSON.parse(localStorage.getItem(geocodeCacheKey) || "{}");
+}catch(e){
+  geocodeCache = {};
+}
+
+function normalizeAddress(address){
+  const clean = (address || "").trim();
+  if(!clean) return "";
+
+  const lower = clean.toLowerCase();
+
+  if(lower.includes("philippines")){
+    return clean;
+  }
+
+  if(lower.includes("batangas")){
+    return clean + ", Philippines";
+  }
+
+  return clean + ", Batangas, Philippines";
+}
+
+function setDistanceLabel(card, text){
+  const label = card.querySelector("[data-distance-label]");
+  if(label){
+    label.textContent = text;
+  }
+}
+
+function rememberOriginalOrder(){
+  document.querySelectorAll('.grid, .business-grid').forEach(grid => {
+    const items = Array.from(grid.children).filter(item =>
+      item.classList.contains('product') || item.classList.contains('business')
+    );
+
+    items.forEach((item, index) => {
+      if(!originalCardOrder.has(item)){
+        originalCardOrder.set(item, index);
+      }
+    });
+  });
+}
+
+function getCardCoords(card){
+  const lat = parseFloat(card.dataset.latitude || "");
+  const lon = parseFloat(card.dataset.longitude || "");
+
+  if(Number.isFinite(lat) && Number.isFinite(lon)){
+    return {lat, lon};
+  }
+
+  return null;
+}
+
+function toRadians(value){
+  return value * (Math.PI / 180);
+}
+
+function calculateDistanceKm(lat1, lon1, lat2, lon2){
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
+async function geocodeAddress(address){
+  const normalized = normalizeAddress(address);
+  if(!normalized){
+    return null;
+  }
+
+  if(geocodeCache[normalized]){
+    return geocodeCache[normalized];
+  }
+
+  try{
+    const response = await fetch(
+      "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=" + encodeURIComponent(normalized)
+    );
+    const data = await response.json();
+
+    if(Array.isArray(data) && data.length > 0){
+      const coords = {
+        lat: parseFloat(data[0].lat),
+        lon: parseFloat(data[0].lon)
+      };
+
+      geocodeCache[normalized] = coords;
+      localStorage.setItem(geocodeCacheKey, JSON.stringify(geocodeCache));
+      return coords;
+    }
+  }catch(error){
+    console.error("Geocode failed:", error);
+  }
+
+  return null;
+}
+
+function sortGridByDistance(gridSelector, itemSelector){
+  document.querySelectorAll(gridSelector).forEach(grid => {
+    const items = Array.from(grid.querySelectorAll(itemSelector));
+
+    items.sort((a,b) => {
+      const distanceA = parseFloat(a.dataset.distance || "999999");
+      const distanceB = parseFloat(b.dataset.distance || "999999");
+      return distanceA - distanceB;
+    });
+
+    items.forEach(item => grid.appendChild(item));
+  });
+}
+
+function sortNearbyCards(){
+  sortGridByDistance('.grid', '.product');
+  sortGridByDistance('.business-grid', '.business');
+}
+
+function restoreDefaultOrder(){
+  document.querySelectorAll('.grid, .business-grid').forEach(grid => {
+    const items = Array.from(grid.children).filter(item =>
+      item.classList.contains('product') || item.classList.contains('business')
+    );
+
+    items.sort((a, b) => {
+      const orderA = originalCardOrder.has(a) ? originalCardOrder.get(a) : 999999;
+      const orderB = originalCardOrder.has(b) ? originalCardOrder.get(b) : 999999;
+      return orderA - orderB;
+    });
+
+    items.forEach(item => grid.appendChild(item));
+  });
+}
+
+function requestDistanceLabels(text){
+  document.querySelectorAll('.product, .business').forEach(card => {
+    setDistanceLabel(card, text);
+  });
+}
+
+function updateDistanceState(card, distanceKm){
+  if(distanceKm === null){
+    delete card.dataset.distance;
+    setDistanceLabel(card, "Distance unavailable");
+    return;
+  }
+
+  card.dataset.distance = distanceKm.toFixed(2);
+  setDistanceLabel(card, distanceKm.toFixed(1) + " km away");
+}
+
+function loadNearbyDistances(){
+  if(!navigator.geolocation){
+    requestDistanceLabels("Location not supported");
+    return;
+  }
+
+  requestDistanceLabels("Getting distance...");
+
+  navigator.geolocation.getCurrentPosition(async position => {
+    userCoords = {
+      lat: position.coords.latitude,
+      lon: position.coords.longitude
+    };
+
+    const cards = document.querySelectorAll('.product, .business');
+
+    for(const card of cards){
+      let coords = getCardCoords(card);
+
+      if(!coords){
+        coords = await geocodeAddress(card.dataset.address || "");
+      }
+
+      if(!coords){
+        updateDistanceState(card, null);
+        continue;
+      }
+
+      const distanceKm = calculateDistanceKm(
+        userCoords.lat,
+        userCoords.lon,
+        coords.lat,
+        coords.lon
+      );
+
+      updateDistanceState(card, distanceKm);
+    }
+
+    if(activeCategory === "nearby"){
+      sortNearbyCards();
+    }
+
+    applyFilters();
+  }, () => {
+    requestDistanceLabels("Enable location to show distance");
+  }, {
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 300000
+  });
+}
 
 function applyFilters(){
 
@@ -420,8 +691,13 @@ function applyFilters(){
     }
 
     if(activeCategory !== "all" &&
+       activeCategory !== "nearby" &&
        item.dataset.category !== activeCategory){
         show = false;
+    }
+
+    if(activeCategory === "nearby" && !item.dataset.distance){
+      show = false;
     }
 
     if(activeRating &&
@@ -457,8 +733,13 @@ function applyFilters(){
     }
 
     if(activeCategory !== "all" &&
+       activeCategory !== "nearby" &&
        item.dataset.category !== activeCategory){
         show = false;
+    }
+
+    if(activeCategory === "nearby" && !item.dataset.distance){
+      show = false;
     }
 
     if(activeRating &&
@@ -487,11 +768,29 @@ searchInput.addEventListener("keyup", applyFilters);
 
 categoryBtns.forEach(btn => {
   btn.addEventListener("click", function(){
+    const clickedCategory = this.dataset.category;
+
+    if(clickedCategory === "nearby" && activeCategory === "nearby"){
+      activeCategory = "all";
+      categoryBtns.forEach(b => b.classList.remove("active"));
+      document.querySelector('.category-btn[data-category="all"]').classList.add("active");
+      restoreDefaultOrder();
+      applyFilters();
+      return;
+    }
+
+    const wasNearby = activeCategory === "nearby";
 
     categoryBtns.forEach(b => b.classList.remove("active"));
     this.classList.add("active");
 
-    activeCategory = this.dataset.category;
+    activeCategory = clickedCategory;
+
+    if(activeCategory === "nearby"){
+      sortNearbyCards();
+    } else if(wasNearby){
+      restoreDefaultOrder();
+    }
 
     applyFilters();
 
@@ -544,6 +843,9 @@ function sortByPrice(){
   });
 
 }
+
+rememberOriginalOrder();
+loadNearbyDistances();
 </script>
 
 </body>
