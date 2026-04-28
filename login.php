@@ -106,7 +106,7 @@ if(isset($_POST['register'])){
     $last_name     = trim($_POST['last_name']);
     $gender        = trim($_POST['gender']);
     $birthday      = trim($_POST['birthday']);
-    $address       = trim($_POST['address']);
+    $address       = "";
     $business_name = isset($_POST['business_name']) ? trim($_POST['business_name']) : "";
     $business_line = isset($_POST['business_line']) ? trim($_POST['business_line']) : "";
 
@@ -131,8 +131,7 @@ if(isset($_POST['register'])){
         empty($first_name) ||
         empty($last_name) ||
         empty($gender) ||
-        empty($birthday) ||
-        empty($address)
+        empty($birthday)
     ){
         $register_error = "All fields required.";
     }
@@ -318,8 +317,6 @@ $conn->close();
        required>
 
     <input type="hidden" name="age" id="age">
-
-    <input type="text" name="address" placeholder="Address" required>
 
 
 <!-- BUSINESS PERMIT FIELD (HIDDEN BY DEFAULT) -->

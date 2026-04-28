@@ -226,16 +226,16 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;}
 .review-rating{display:flex;gap:3px;color:#001a47;}
 .review-comment{line-height:1.6;color:#334155;white-space:pre-wrap;}
 .empty-reviews{padding:18px;border:1px dashed #cbd5e1;border-radius:14px;text-align:center;color:#64748b;background:#f8fafc;}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;justify-content:center;align-items:center;padding:16px;z-index:2000;}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;justify-content:center;align-items:center;padding:16px;z-index:3000;overflow-y:auto;}
 .modal.active{display:flex;}
-.modal-content{width:100%;max-width:420px;background:#fff;border-radius:16px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.15);position:relative;}
+.modal-content{width:100%;max-width:420px;background:#fff;border-radius:16px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.15);position:relative;max-height:calc(100vh - 32px);overflow-y:auto;}
 .modal-close{position:absolute;top:10px;right:12px;font-size:18px;cursor:pointer;color:#666;}
 .modal-subtitle{font-size:14px;color:#64748b;margin:-4px 0 16px;}
 .stars{display:flex;gap:6px;font-size:24px;margin-bottom:12px;}
 .stars i{color:#d1d5db;cursor:pointer;transition:color .15s ease,transform .15s ease;}
 .stars i.active{color:#001a47;}
 .stars i:hover{transform:scale(1.06);}
-.modal textarea{width:100%;height:110px;border-radius:10px;border:1px solid #e5e7eb;padding:12px;margin-bottom:12px;resize:none;font:inherit;}
+.modal textarea{width:100%;height:110px;border-radius:10px;border:1px solid #e5e7eb;padding:12px;margin-bottom:12px;resize:none;font:inherit;box-sizing:border-box;}
 .anonymous-toggle{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:#334155;font-size:14px;}
 .submit-review{width:100%;padding:12px;border:none;border-radius:12px;background:#001a47;color:#fff;font-weight:600;cursor:pointer;}
 @media (max-width:768px){
@@ -366,9 +366,9 @@ No reviews yet. Share the first review for this product.
 </div>
 
 <div class="modal" id="modal">
-<div class="modal-content">
+<div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="reviewModalTitle">
 <i class="fa fa-times modal-close" onclick="closeModal()"></i>
-<h4 style="margin-top:0;"><?= $userReview ? 'Edit your review' : 'Rate this product' ?></h4>
+<h4 id="reviewModalTitle" style="margin-top:0;"><?= $userReview ? 'Edit your review' : 'Rate this product' ?></h4>
 <div class="modal-subtitle">Tell other customers what you think about <?= htmlspecialchars($product['name']) ?>.</div>
 
 <form method="POST" action="productdetails.php?id=<?= $id ?>">
@@ -477,6 +477,7 @@ function addToCartAnimation(){
 }
 
 const modal = document.getElementById("modal");
+const modalContent = modal.querySelector(".modal-content");
 const ratingInput = document.getElementById("ratingInput");
 
 function openModal(){
@@ -495,6 +496,16 @@ modal.addEventListener("click", function(e){
   }
 });
 
+modalContent.addEventListener("click", function(e){
+  e.stopPropagation();
+});
+
+document.addEventListener("keydown", function(e){
+  if(e.key === "Escape" && modal.classList.contains("active")){
+    closeModal();
+  }
+});
+
 document.querySelectorAll("#stars i").forEach(star => {
   star.addEventListener("click", () => {
     const val = Number(star.dataset.val);
@@ -504,6 +515,10 @@ document.querySelectorAll("#stars i").forEach(star => {
     });
   });
 });
+
+<?php if($reviewStatus === 'invalid' || $reviewStatus === 'invalid_user' || $reviewStatus === 'failed'): ?>
+openModal();
+<?php endif; ?>
 </script>
 
 <?php include 'bottom_nav.php'; ?>
