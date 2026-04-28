@@ -384,6 +384,7 @@ No
 
 <div class="products-grid">
 <?php while($row = $services->fetch_assoc()): ?>
+<a href="servicedetails.php?id=<?= $row['id'] ?>" style="text-decoration:none;color:inherit;">
 <div class="product-card">
 
 <img src="uploads/services/<?= $row['image'] ?: 'default_service.jpg' ?>" class="product-img">
@@ -401,6 +402,7 @@ No
 
 </div>
 </div>
+</a>
 <?php endwhile; ?>
 </div>
 

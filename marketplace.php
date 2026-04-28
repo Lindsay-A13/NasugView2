@@ -3,6 +3,26 @@ session_start();
 require_once "config/db.php";
 require_once "config/cart_count.php";
 
+$createProductReviewsTableSql = "
+CREATE TABLE IF NOT EXISTS product_reviews (
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    product_id INT(11) NOT NULL,
+    user_id INT(11) NOT NULL,
+    rating INT(11) NOT NULL,
+    comment TEXT NOT NULL,
+    is_anonymous TINYINT(1) DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY unique_product_review (product_id, user_id),
+    KEY idx_product_reviews_product (product_id),
+    KEY idx_product_reviews_user (user_id)
+)";
+
+if(!$conn->query($createProductReviewsTableSql)){
+    die("Unable to prepare product reviews: " . $conn->error);
+}
+
 /* LOAD CATEGORIES */
 $cat_stmt = $conn->prepare("
     SELECT category_id, category_name
@@ -27,7 +47,9 @@ $product_stmt = $conn->prepare("
         ic.name AS inventory_category_name,
         c.category_id,
         c.category_name,
-        b.business_name
+        b.business_name,
+        COALESCE(pr.avg_rating, 0) AS avg_rating,
+        COALESCE(pr.total_reviews, 0) AS total_reviews
     FROM inventory i
     INNER JOIN business_owner b
         ON i.owner_id = b.b_id
@@ -35,6 +57,12 @@ $product_stmt = $conn->prepare("
         ON b.category_id = c.category_id
     INNER JOIN inventory_categories ic
         ON i.category_id = ic.id
+    LEFT JOIN (
+        SELECT product_id, ROUND(AVG(rating),1) AS avg_rating, COUNT(*) AS total_reviews
+        FROM product_reviews
+        GROUP BY product_id
+    ) pr
+        ON pr.product_id = i.id
     ORDER BY i.created_at DESC
 ");
 if(!$product_stmt){ die("Product Query Error: " . $conn->error); }
@@ -53,12 +81,20 @@ $service_stmt = $conn->prepare("
         b.business_name,
         b.b_id AS owner_id,
         c.category_id,
-        c.category_name
+        c.category_name,
+        COALESCE(br.avg_rating, 0) AS avg_rating,
+        COALESCE(br.total_reviews, 0) AS total_reviews
     FROM services s
     INNER JOIN business_owner b
         ON s.owner_id = b.b_id
     INNER JOIN categories c
         ON b.category_id = c.category_id
+    LEFT JOIN (
+        SELECT business_id, ROUND(AVG(experience_rating),1) AS avg_rating, COUNT(*) AS total_reviews
+        FROM reviews
+        GROUP BY business_id
+    ) br
+        ON br.business_id = b.b_id
     ORDER BY s.created_at DESC
 ");
 
@@ -212,11 +248,21 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
    data-categoryname="<?= strtolower($row['category_name']); ?>"
    data-productcategory="<?= strtolower($row['inventory_category_name']); ?>"
    data-business="<?= strtolower($row['business_name']); ?>"
-   data-owner="<?= $row['owner_id']; ?>">
+   data-owner="<?= $row['owner_id']; ?>"
+   data-rating="<?= round($row['avg_rating']); ?>">
     <img src="uploads/product/<?= $row['image'] ?: 'default_product.jpg'; ?>">
     <div class="product-body">
       <div class="product-name"><?= htmlspecialchars($row['name']); ?></div>
       <div>₱<?= number_format($row['price'],2); ?></div>
+      <div class="stars">
+        <?php $rating = round($row['avg_rating']); for($i=1;$i<=5;$i++): ?>
+          <i class="fa <?= $i <= $rating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
+        <?php endfor; ?>
+      </div>
+      <div style="font-size:12px;color:#777">
+        <?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>
+        (<?= (int) $row['total_reviews']; ?>)
+      </div>
     </div>
 </a>
 <?php endwhile; ?>
@@ -233,7 +279,7 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 <div class="grid">
 <?php if($services->num_rows > 0): ?>
 <?php while($row=$services->fetch_assoc()): ?>
-<a href="#"
+<a href="servicedetails.php?id=<?= $row['id']; ?>"
    class="product"
    data-price="<?= $row['price']; ?>"
    data-name="<?= strtolower($row['name']); ?>"
@@ -242,7 +288,8 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
    data-category="<?= $row['category_id']; ?>"
    data-categoryname="<?= strtolower($row['category_name']); ?>"
    data-business="<?= strtolower($row['business_name']); ?>"
-   data-owner="<?= $row['owner_id']; ?>">
+   data-owner="<?= $row['owner_id']; ?>"
+   data-rating="<?= round($row['avg_rating']); ?>">
 
     <img src="uploads/services/<?= $row['image'] ?: 'default_service.jpg'; ?>">
 
@@ -256,6 +303,16 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 
         <div>₱<?= number_format($row['price'],2); ?></div>
 
+        <div class="stars">
+            <?php $rating = round($row['avg_rating']); for($i=1;$i<=5;$i++): ?>
+              <i class="fa <?= $i <= $rating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
+            <?php endfor; ?>
+        </div>
+        <div style="font-size:12px;color:#777">
+            <?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>
+            (<?= (int) $row['total_reviews']; ?>)
+        </div>
+
         <!-- DURATION -->
         <div style="font-size:12px;color:#888;">
             <?= $row['duration']; ?> mins (duration)
@@ -267,6 +324,11 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 <?php else: ?>
 <p style="padding:10px;color:#888;">No services available.</p>
 <?php endif; ?>
+</div>
+
+<div id="noServicesMsg" 
+     style="display:none;padding:20px;text-align:center;color:#888;font-size:14px;">
+  No services found in this category.
 </div>
 
 <!-- BUSINESSES -->
@@ -331,6 +393,7 @@ function applyFilters(){
   const value = searchInput.value.toLowerCase();
 
   let visibleProducts = 0;
+  let visibleServices = 0;
   let visibleBusinesses = 0;
 
   /* FILTER PRODUCTS */
@@ -361,9 +424,20 @@ function applyFilters(){
         show = false;
     }
 
+    if(activeRating &&
+       parseInt(item.dataset.rating || "0", 10) !== parseInt(activeRating, 10)){
+        show = false;
+    }
+
     item.classList.toggle('hidden', !show);
 
-    if(show) visibleProducts++;
+    if(show){
+      if(item.dataset.type === "service"){
+        visibleServices++;
+      } else {
+        visibleProducts++;
+      }
+    }
 
   });
 
@@ -400,6 +474,9 @@ function applyFilters(){
 
   document.getElementById("noProductsMsg").style.display =
       visibleProducts === 0 ? "block" : "none";
+
+  document.getElementById("noServicesMsg").style.display =
+      visibleServices === 0 ? "block" : "none";
 
   document.getElementById("noBusinessesMsg").style.display =
       visibleBusinesses === 0 ? "block" : "none";
