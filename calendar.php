@@ -54,6 +54,7 @@ $events_json = json_encode($events);
 href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
 <link rel="stylesheet" href="assets/css/calendar.css?v=2">
+<link rel="stylesheet" href="assets/css/responsive.css">
 <?php require_once "config/theme.php"; render_theme_head(); ?>
 </head>
 <body>
@@ -61,9 +62,7 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
 
 <div class="page-wrapper">
 
-<div class="header">
-    <img src="assets/images/logo.png">
-</div>
+<div class="header"></div>
 
 <div class="container">
 <div class="calendar">

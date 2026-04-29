@@ -33,6 +33,7 @@ if(isset($_GET['logout'])){
 <title>More</title>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link rel="stylesheet" href="assets/css/responsive.css"/>
 
 <style>
 
@@ -206,7 +207,6 @@ body {
 <div class="container">
 
     <div class="page-title">
-        <img src="assets/images/logo.png" alt="Logo">
         <a href="cart.php" class="cart-btn">
     <i class="fa fa-shopping-cart"></i>
 

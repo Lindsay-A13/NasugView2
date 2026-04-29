@@ -123,6 +123,7 @@ $products = $product_stmt->get_result();
 <title>Business Profile</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="assets/css/responsive.css"/>
 
 <style>
 *{box-sizing:border-box;}
@@ -371,7 +372,7 @@ body{margin:0;font-family:Arial;background:#ffff;}
 
     <div class="card">
 <?php
-$cover = "assets/images/logo.png";
+$cover = "assets/images/default-cover.png";
 
 if(!empty($data['business_photo'])){
     $path = "uploads/business_cover/".$data['business_photo'];

@@ -194,6 +194,7 @@ $stmt->bind_param(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Event Registration</title>
+<link rel="stylesheet" href="assets/css/responsive.css">
 
 <style>
 
@@ -381,9 +382,7 @@ button{
 <body>
 <?php include 'mobile_back_button.php'; ?>
 
-<div class="header">
-    <img src="assets/images/logo.png" alt="Logo">
-</div>
+<div class="header"></div>
 
 <div class="container">
 

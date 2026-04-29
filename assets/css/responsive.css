@@ -1,0 +1,200 @@
+:root{
+    --responsive-gutter: clamp(14px, 3vw, 24px);
+}
+
+html{
+    overflow-x:hidden;
+    -webkit-text-size-adjust:100%;
+}
+
+body{
+    overflow-x:hidden;
+}
+
+img,
+video,
+canvas,
+svg,
+iframe{
+    max-width:100%;
+}
+
+input,
+select,
+textarea,
+button{
+    max-width:100%;
+    font:inherit;
+}
+
+.container,
+.profile-wrap{
+    width:min(100%, 1100px);
+    margin-inline:auto;
+}
+
+.topbar,
+.header,
+.header-row,
+.hero,
+.filter-bar,
+.review-top,
+.review-user,
+.review-summary,
+.reviews-header,
+.business-header,
+.page-title,
+.modal-actions,
+.modal-comment-box,
+.business-card,
+.pref-item,
+.action-row{
+    min-width:0;
+}
+
+.topbar > *,
+.header-row > *,
+.hero > *,
+.filter-bar > *,
+.review-top > *,
+.review-user > *,
+.review-summary > *,
+.reviews-header > *,
+.business-header > *,
+.page-title > *,
+.modal-actions > *,
+.modal-comment-box > *,
+.business-card > *,
+.pref-item > *,
+.action-row > *{
+    min-width:0;
+}
+
+.table-card,
+.modal-content,
+.business-setup-panel,
+.comment-modal,
+.image-modal,
+.category-bar,
+.star-bar,
+.horizontal,
+.tabs{
+    max-width:100%;
+}
+
+@media (max-width: 900px){
+    .settings-layout,
+    .product-card,
+    .service-card,
+    .info-grid{
+        grid-template-columns:1fr !important;
+    }
+}
+
+@media (max-width: 768px){
+    body{
+        padding-bottom:max(96px, env(safe-area-inset-bottom, 0px));
+    }
+
+    .container,
+    .profile-wrap{
+        width:100%;
+        padding-left:var(--responsive-gutter) !important;
+        padding-right:var(--responsive-gutter) !important;
+    }
+
+    .topbar,
+    .header,
+    .header-row,
+    .hero,
+    .filter-bar,
+    .review-top,
+    .review-user,
+    .review-summary,
+    .reviews-header,
+    .business-header,
+    .page-title,
+    .modal-actions,
+    .modal-comment-box,
+    .business-card,
+    .pref-item,
+    .action-row{
+        flex-wrap:wrap;
+    }
+
+    .tabs{
+        flex-wrap:nowrap;
+        overflow-x:auto;
+        scrollbar-width:none;
+    }
+
+    .tabs::-webkit-scrollbar{
+        display:none;
+    }
+
+    .tab{
+        flex:0 0 auto;
+    }
+
+    .grid,
+    .business-grid,
+    .products-grid,
+    .info-grid,
+    .settings-layout{
+        grid-template-columns:1fr !important;
+    }
+
+    .category-form{
+        flex-direction:column;
+    }
+
+    .category-form input,
+    .category-form button,
+    .filter-select,
+    .modal-actions button{
+        width:100%;
+    }
+
+    .horizontal,
+    .category-bar,
+    .star-bar{
+        padding-left:var(--responsive-gutter) !important;
+        padding-right:var(--responsive-gutter) !important;
+    }
+
+    .welcome,
+    .section-title{
+        margin-left:var(--responsive-gutter) !important;
+        margin-right:var(--responsive-gutter) !important;
+    }
+
+    .featured-card,
+    .product,
+    .business{
+        width:100%;
+    }
+
+    .featured-card img,
+    .product img,
+    .business img,
+    .review-img{
+        width:100% !important;
+        height:auto !important;
+        aspect-ratio:16 / 9;
+        object-fit:cover;
+    }
+
+    .modal,
+    .modal-content,
+    .business-setup-panel,
+    .comment-modal .modal-content{
+        max-width:100%;
+    }
+
+    input[style],
+    select[style],
+    textarea[style]{
+        width:100% !important;
+        max-width:100% !important;
+    }
+}

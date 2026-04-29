@@ -83,6 +83,7 @@ function groupLabel($date)
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Notifications</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link rel="stylesheet" href="assets/css/responsive.css"/>
 <style>
 body{margin:0;font-family:Arial;background:#f5f7fb;}
 .container{max-width:1100px;margin:auto;padding:18px 20px 90px;}

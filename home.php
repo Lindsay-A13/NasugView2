@@ -2,6 +2,39 @@
 require_once "config/session.php";
 require_once "config/db.php";
 
+function ensureBusinessLocationColumns(mysqli $conn): void {
+    $requiredColumns = [
+        "latitude" => "ALTER TABLE business_owner ADD COLUMN latitude DECIMAL(10,7) NULL AFTER address",
+        "longitude" => "ALTER TABLE business_owner ADD COLUMN longitude DECIMAL(10,7) NULL AFTER latitude"
+    ];
+
+    foreach($requiredColumns as $column => $sql){
+        $check = $conn->prepare("
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'business_owner'
+              AND COLUMN_NAME = ?
+            LIMIT 1
+        ");
+
+        if(!$check){
+            continue;
+        }
+
+        $check->bind_param("s", $column);
+        $check->execute();
+        $exists = $check->get_result()->num_rows > 0;
+        $check->close();
+
+        if(!$exists){
+            $conn->query($sql);
+        }
+    }
+}
+
+ensureBusinessLocationColumns($conn);
+
 function renderReviewComments(mysqli $conn, int $reviewId): string {
 ob_start();
 
@@ -315,6 +348,38 @@ $featured = $featuredStmt->get_result();
 
 $current_user_id = $_SESSION['user_id'] ?? 0;
 $current_account_type = $_SESSION['account_type'] ?? "";
+$showBusinessOnboarding = false;
+$needsBusinessPin = false;
+$needsBusinessProfile = false;
+
+if($current_account_type === "business_owner" && $current_user_id > 0){
+    $businessSetupStmt = $conn->prepare("
+        SELECT business_name, phone, description, address, business_photo, latitude, longitude
+        FROM business_owner
+        WHERE b_id = ?
+        LIMIT 1
+    ");
+
+    if($businessSetupStmt){
+        $businessSetupStmt->bind_param("i", $current_user_id);
+        $businessSetupStmt->execute();
+        $businessSetup = $businessSetupStmt->get_result()->fetch_assoc();
+        $businessSetupStmt->close();
+
+        if($businessSetup){
+            $needsBusinessPin = empty(trim((string) ($businessSetup['address'] ?? '')))
+                || $businessSetup['latitude'] === null
+                || $businessSetup['longitude'] === null;
+
+            $needsBusinessProfile = empty(trim((string) ($businessSetup['phone'] ?? '')))
+                || empty(trim((string) ($businessSetup['description'] ?? '')))
+                || empty(trim((string) ($businessSetup['business_photo'] ?? '')))
+                || empty(trim((string) ($businessSetup['business_name'] ?? '')));
+
+            $showBusinessOnboarding = $needsBusinessPin || $needsBusinessProfile;
+        }
+    }
+}
 
 /* ================= LATEST REVIEWS ================= */
 
@@ -387,6 +452,7 @@ $reviews = $reviewStmt->get_result();
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <link rel="stylesheet" href="assets/css/home.css">
+<link rel="stylesheet" href="assets/css/responsive.css">
 
 
 <?php require_once "config/theme.php"; render_theme_head(); ?>
@@ -397,9 +463,6 @@ $reviews = $reviewStmt->get_result();
 <div class="container">
 
 <div class="topbar">
-
-<img src="assets/images/logo.png" class="logo">
-
 <div class="search-bar">
 <span>Search for ...</span>
 <i class="fa fa-search"></i>
@@ -425,7 +488,7 @@ Welcome, <?php echo htmlspecialchars($_SESSION['username']); ?>!
 <?php while($row = $topRated->fetch_assoc()): ?>
 
 <?php
-$photo = "assets/images/logo.png";
+$photo = "assets/images/default-cover.png";
 $roundedRating = (int) round((float) ($row['avg_rating'] ?? 0));
 
 if(!empty($row['business_photo'])){
@@ -477,7 +540,7 @@ if(!empty($row['business_photo'])){
 <?php while($row = $featured->fetch_assoc()): ?>
 
 <?php
-$photo = "assets/images/logo.png";
+$photo = "assets/images/default-cover.png";
 $roundedRating = (int) round((float) ($row['avg_rating'] ?? 0));
 
 if(!empty($row['business_photo'])){
@@ -735,6 +798,37 @@ Comments
 </div>
 </div>
 
+<?php if($showBusinessOnboarding): ?>
+<div id="businessSetupModal" class="business-setup-modal" aria-hidden="true" hidden>
+<div class="business-setup-panel" role="dialog" aria-modal="true" aria-labelledby="businessSetupTitle">
+<button type="button" class="business-setup-close" aria-label="Close setup reminder">&times;</button>
+<div class="business-setup-icon">
+<i class="fa fa-store"></i>
+</div>
+<h2 id="businessSetupTitle" class="business-setup-title">Complete your business profile</h2>
+<p class="business-setup-text">Set your business pin and finish your profile so customers can find your shop and trust your page faster.</p>
+<ul class="business-setup-list">
+<?php if($needsBusinessPin): ?>
+<li>
+<i class="fa fa-location-dot"></i>
+<span>Add your address and place the exact map pin for your business.</span>
+</li>
+<?php endif; ?>
+<?php if($needsBusinessProfile): ?>
+<li>
+<i class="fa fa-pen"></i>
+<span>Customize your business profile with business details, phone, description, and cover photo.</span>
+</li>
+<?php endif; ?>
+</ul>
+<div class="business-setup-actions">
+<a href="business_profile.php" class="business-setup-link">Open Business Profile</a>
+<button type="button" class="business-setup-dismiss">Maybe Later</button>
+</div>
+</div>
+</div>
+<?php endif; ?>
+
 <?php include 'bottom_nav.php'; ?>
 
 <script>
@@ -744,6 +838,13 @@ const modalComments = document.getElementById("modalComments");
 const modalReviewId = document.getElementById("modalReviewId");
 const modalCommentForm = document.getElementById("modalCommentForm");
 const modalCommentInput = document.getElementById("modalCommentInput");
+const businessSetupModal = document.getElementById("businessSetupModal");
+const businessSetupClose = document.querySelector(".business-setup-close");
+const businessSetupDismiss = document.querySelector(".business-setup-dismiss");
+const businessSetupCooldownMs = 5 * 60 * 60 * 1000;
+const businessSetupStorageKey = businessSetupModal
+? "businessSetupReminderUntil_<?php echo (int) $current_user_id; ?>"
+: "";
 const imageModal = document.getElementById("imageModal");
 const imageModalPreview = document.getElementById("imageModalPreview");
 const imageCloseBtn = document.querySelector(".image-close");
@@ -756,6 +857,67 @@ let touchStartX = 0;
 let touchCurrentX = 0;
 
 modal.style.display = "none";
+
+function syncBodyOverflow(){
+const hasCommentModal = modal.classList.contains("is-visible");
+const hasImageModal = imageModal.style.display === "flex";
+const hasBusinessSetup = businessSetupModal && businessSetupModal.classList.contains("is-visible");
+document.body.style.overflow = hasCommentModal || hasImageModal || hasBusinessSetup ? "hidden" : "";
+}
+
+function openBusinessSetupModal(){
+if(!businessSetupModal){
+return;
+}
+
+if(shouldSnoozeBusinessSetupModal()){
+return;
+}
+
+businessSetupModal.hidden = false;
+businessSetupModal.classList.add("is-visible");
+businessSetupModal.setAttribute("aria-hidden", "false");
+syncBodyOverflow();
+}
+
+function closeBusinessSetupModal(){
+if(!businessSetupModal){
+return;
+}
+
+businessSetupModal.classList.remove("is-visible");
+businessSetupModal.setAttribute("aria-hidden", "true");
+businessSetupModal.hidden = true;
+syncBodyOverflow();
+}
+
+function shouldSnoozeBusinessSetupModal(){
+if(!businessSetupStorageKey){
+return false;
+}
+
+try{
+const reminderUntil = parseInt(window.localStorage.getItem(businessSetupStorageKey), 10);
+return Number.isFinite(reminderUntil) && Date.now() < reminderUntil;
+}catch(error){
+return false;
+}
+}
+
+function snoozeBusinessSetupModal(){
+if(!businessSetupStorageKey){
+return;
+}
+
+try{
+window.localStorage.setItem(
+businessSetupStorageKey,
+String(Date.now() + businessSetupCooldownMs)
+);
+}catch(error){
+// Ignore storage issues and fall back to the default behavior.
+}
+}
 
 function updateImageModal(){
 if(!activeImages.length){
@@ -791,7 +953,7 @@ activeImageIndex = startIndex;
 updateImageModal();
 imageModal.style.display = "flex";
 imageModal.setAttribute("aria-hidden", "false");
-document.body.style.overflow = "hidden";
+syncBodyOverflow();
 }
 
 function closeImageModal(){
@@ -801,6 +963,7 @@ imageModal.setAttribute("aria-hidden", "true");
 activeImages = [];
 activeImageIndex = 0;
 document.body.style.overflow = modal.classList.contains("is-visible") ? "hidden" : "";
+syncBodyOverflow();
 }
 
 function openCommentModal(){
@@ -816,7 +979,7 @@ window.requestAnimationFrame(function(){
 modal.classList.add("is-visible");
 });
 
-document.body.style.overflow = "hidden";
+syncBodyOverflow();
 }
 
 function closeCommentModal(){
@@ -828,9 +991,27 @@ clearTimeout(modalCloseTimer);
 
 modalCloseTimer = setTimeout(function(){
 modal.style.display = "none";
-document.body.style.overflow = "";
+syncBodyOverflow();
 modalCloseTimer = null;
 }, 280);
+}
+
+if(businessSetupModal){
+openBusinessSetupModal();
+}
+
+if(businessSetupClose){
+businessSetupClose.addEventListener("click", function(){
+snoozeBusinessSetupModal();
+closeBusinessSetupModal();
+});
+}
+
+if(businessSetupDismiss){
+businessSetupDismiss.addEventListener("click", function(){
+snoozeBusinessSetupModal();
+closeBusinessSetupModal();
+});
 }
 
 /* ================= HEART REACTION ================= */
@@ -928,11 +1109,21 @@ window.addEventListener("click", function(e){
 if(e.target === modal){
 closeCommentModal();
 }
+
+if(businessSetupModal && e.target === businessSetupModal){
+snoozeBusinessSetupModal();
+closeBusinessSetupModal();
+}
 });
 
 window.addEventListener("keydown", function(e){
 if(e.key === "Escape" && modal.classList.contains("is-visible")){
 closeCommentModal();
+}
+
+if(e.key === "Escape" && businessSetupModal && businessSetupModal.classList.contains("is-visible")){
+snoozeBusinessSetupModal();
+closeBusinessSetupModal();
 }
 
 if(e.key === "Escape" && imageModal.style.display === "flex"){

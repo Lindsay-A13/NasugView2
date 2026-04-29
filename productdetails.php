@@ -188,6 +188,7 @@ $reviewStatus = $_GET['review'] ?? '';
 <title><?= htmlspecialchars($product['name']) ?> | NasugView</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link rel="stylesheet" href="assets/css/responsive.css"/>
 
 <style>
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;}
@@ -249,7 +250,6 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;}
 <?php include 'mobile_back_button.php'; ?>
 
 <div class="header">
-<a href="home.php" class="logo"><img src="assets/images/logo.png" alt="NasugView"></a>
 <a href="cart.php" class="cart-btn" id="cartIcon">
     <i class="fa fa-shopping-cart"></i>
     <span class="cart-badge" id="cartBadge" style="<?= $cartCount > 0 ? '' : 'display:none;' ?>">
