@@ -102,11 +102,12 @@ $error="Upload failed.";
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Settings</title>
+<link rel="stylesheet" href="assets/css/responsive.css">
 
 <style>
 :root{
@@ -536,8 +537,8 @@ width:100%;
 
 <div class="hero">
 <div>
-<h1 class="hero-title">Settings</h1>
-<p class="hero-subtitle">Manage your account details, business requirements, display preferences, and support options in one place.</p>
+<h1 class="hero-title" data-i18n="hero_title">Settings</h1>
+<p class="hero-subtitle" data-i18n="hero_subtitle">Manage your account details, business requirements, display preferences, and support options in one place.</p>
 </div>
 <div class="hero-badge"><?php echo htmlspecialchars(ucwords(str_replace("_", " ", $account_type))); ?> Account</div>
 </div>
@@ -557,35 +558,35 @@ width:100%;
 
 <div class="section">
 <div class="section-head">
-<h2 class="section-title">Account Settings</h2>
-<p class="section-desc">Keep your public profile and contact details accurate for smoother account recovery and updates.</p>
+<h2 class="section-title" data-i18n="account_settings_title">Account Settings</h2>
+<p class="section-desc" data-i18n="account_settings_desc">Keep your public profile and contact details accurate for smoother account recovery and updates.</p>
 </div>
 <div class="card-body">
 <form method="POST">
 <div class="grid">
 <div class="field">
-<label>Username</label>
+<label data-i18n="label_username">Username</label>
 <input type="text" name="username" value="<?php echo htmlspecialchars($user['username']); ?>">
 </div>
 
 <div class="field">
-<label>Email</label>
+<label data-i18n="label_email">Email</label>
 <input type="email" name="email" value="<?php echo htmlspecialchars($user['email']); ?>">
 </div>
 
 <div class="field">
-<label>First Name</label>
+<label data-i18n="label_first_name">First Name</label>
 <input type="text" name="fname" value="<?php echo htmlspecialchars($user['fname']); ?>">
 </div>
 
 <div class="field">
-<label>Last Name</label>
+<label data-i18n="label_last_name">Last Name</label>
 <input type="text" name="lname" value="<?php echo htmlspecialchars($user['lname']); ?>">
 </div>
 </div>
 
 <div class="actions">
-<button type="submit" name="update_info">Update Information</button>
+<button type="submit" name="update_info" data-i18n="update_information">Update Information</button>
 </div>
 </form>
 </div>
@@ -594,18 +595,18 @@ width:100%;
 <?php if($account_type==="business_owner"): ?>
 <div class="section">
 <div class="section-head">
-<h2 class="section-title">Business Permit</h2>
-<p class="section-desc">Upload or replace your permit file to keep your business account verified and compliant.</p>
+<h2 class="section-title" data-i18n="business_permit_title">Business Permit</h2>
+<p class="section-desc" data-i18n="business_permit_desc">Upload or replace your permit file to keep your business account verified and compliant.</p>
 </div>
 <div class="card-body">
 <form method="POST" enctype="multipart/form-data">
 <div class="field full">
-<label>Upload Permit</label>
+<label data-i18n="upload_permit_label">Upload Permit</label>
 <input type="file" name="permit" accept=".jpg,.jpeg,.png,.pdf">
 </div>
 
 <div class="actions">
-<button type="submit" name="upload_permit">Upload Permit</button>
+<button type="submit" name="upload_permit" data-i18n="upload_permit_button">Upload Permit</button>
 </div>
 </form>
 </div>
@@ -618,26 +619,26 @@ width:100%;
 
 <div class="section">
 <div class="section-head">
-<h2 class="section-title">Accessibility</h2>
-<p class="section-desc">Adjust your display preferences for readability and a more comfortable browsing experience.</p>
+<h2 class="section-title" data-i18n="accessibility_title">Accessibility</h2>
+<p class="section-desc" data-i18n="accessibility_desc">Adjust your display preferences for readability and a more comfortable browsing experience.</p>
 </div>
 <div class="card-body">
 <div class="pref-list">
 <div class="pref-item">
 <div>
-<p class="pref-title">Language</p>
-<p class="pref-text">Select the interface language used in this page.</p>
+<p class="pref-title" data-i18n="language_title">Language</p>
+<p class="pref-text" data-i18n="language_desc">Select the interface language used in this page.</p>
 </div>
-<select aria-label="Language preference">
-<option>English</option>
-<option>Filipino</option>
+<select id="languageSelect" aria-label="Language preference">
+<option value="en">English</option>
+<option value="fil">Filipino</option>
 </select>
 </div>
 
 <div class="pref-item">
 <div>
-<p class="pref-title">Dark Mode</p>
-<p class="pref-text">Use a darker color palette across the settings page and bottom navigation.</p>
+<p class="pref-title" data-i18n="dark_mode_title">Dark Mode</p>
+<p class="pref-text" data-i18n="dark_mode_desc">Use a darker color palette across the settings page and bottom navigation.</p>
 </div>
 <label class="switch">
 <input type="checkbox" id="darkToggle" aria-label="Toggle dark mode">
@@ -660,7 +661,68 @@ width:100%;
 <script>
 
 const toggle = document.getElementById("darkToggle");
+const languageSelect = document.getElementById("languageSelect");
 const storageKey = "darkmode";
+const languageStorageKey = "settings_language";
+const translations = {
+en: {
+hero_title: "Settings",
+hero_subtitle: "Manage your account details, business requirements, display preferences, and support options in one place.",
+account_settings_title: "Account Settings",
+account_settings_desc: "Keep your public profile and contact details accurate for smoother account recovery and updates.",
+label_username: "Username",
+label_email: "Email",
+label_first_name: "First Name",
+label_last_name: "Last Name",
+update_information: "Update Information",
+business_permit_title: "Business Permit",
+business_permit_desc: "Upload or replace your permit file to keep your business account verified and compliant.",
+upload_permit_label: "Upload Permit",
+upload_permit_button: "Upload Permit",
+accessibility_title: "Accessibility",
+accessibility_desc: "Adjust your display preferences for readability and a more comfortable browsing experience.",
+language_title: "Language",
+language_desc: "Select the interface language used in this page.",
+dark_mode_title: "Dark Mode",
+dark_mode_desc: "Use a darker color palette across the settings page and bottom navigation."
+},
+fil: {
+hero_title: "Mga Setting",
+hero_subtitle: "Pamahalaan ang detalye ng iyong account, mga kailangan sa negosyo, mga display preference, at mga opsyon sa suporta sa iisang lugar.",
+account_settings_title: "Mga Setting ng Account",
+account_settings_desc: "Panatilihing tama ang iyong pampublikong profile at contact details para sa mas maayos na account recovery at updates.",
+label_username: "Username",
+label_email: "Email",
+label_first_name: "Unang Pangalan",
+label_last_name: "Apelyido",
+update_information: "I-update ang Impormasyon",
+business_permit_title: "Permit ng Negosyo",
+business_permit_desc: "Mag-upload o magpalit ng permit file upang manatiling beripikado at sumusunod sa mga requirement ang iyong business account.",
+upload_permit_label: "Mag-upload ng Permit",
+upload_permit_button: "Mag-upload ng Permit",
+accessibility_title: "Accessibility",
+accessibility_desc: "Ayusin ang iyong display preferences para sa mas malinaw at mas komportableng paggamit.",
+language_title: "Wika",
+language_desc: "Piliin ang wikang gagamitin sa pahinang ito.",
+dark_mode_title: "Dark Mode",
+dark_mode_desc: "Gumamit ng mas madilim na kulay sa settings page at bottom navigation."
+}
+};
+
+function applyLanguage(language){
+const selectedLanguage = translations[language] ? language : "en";
+document.documentElement.lang = selectedLanguage === "fil" ? "fil" : "en";
+document.querySelectorAll("[data-i18n]").forEach(element => {
+const key = element.dataset.i18n;
+if(translations[selectedLanguage][key]){
+element.textContent = translations[selectedLanguage][key];
+}
+});
+if(languageSelect){
+languageSelect.value = selectedLanguage;
+}
+localStorage.setItem(languageStorageKey, selectedLanguage);
+}
 
 function applyTheme(isDark){
 document.body.classList.toggle("theme-dark", isDark);
@@ -671,6 +733,7 @@ toggle.checked = isDark;
 }
 
 applyTheme(localStorage.getItem(storageKey) === "on");
+applyLanguage(localStorage.getItem(languageStorageKey) || "en");
 
 if(toggle){
 toggle.addEventListener("change", function(){
@@ -681,6 +744,12 @@ window.NVTheme.set(isDark);
 localStorage.setItem(storageKey, isDark ? "on" : "off");
 applyTheme(isDark);
 }
+});
+}
+
+if(languageSelect){
+languageSelect.addEventListener("change", function(){
+applyLanguage(this.value);
 });
 }
 

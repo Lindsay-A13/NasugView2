@@ -188,6 +188,7 @@ $reviewStatus = $_GET['review'] ?? '';
 <title><?= htmlspecialchars($product['name']) ?> | NasugView</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link rel="stylesheet" href="assets/css/responsive.css"/>
 
 <style>
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;}

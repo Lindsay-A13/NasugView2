@@ -76,6 +76,9 @@ while($row = $resFollowers->fetch_assoc()){
 /* ================= DAILY SALES ================= */
 
 $daysInMonth=cal_days_in_month(CAL_GREGORIAN,$selectedMonth,$selectedYear);
+$todayYear = (int) date("Y");
+$todayMonth = (int) date("n");
+$todayDay = (int) date("j");
 
 $dailySales=[];
 $dailyOrders=[];
@@ -165,7 +168,28 @@ $totalFollowers = $followerStmt->get_result()->fetch_assoc()['followers'] ?? 0;
 
 
 /* DAILY PRODUCTS */
-$selectedDay = isset($_GET['day']) ? (int)$_GET['day'] : null;
+$hasDayParam = isset($_GET['day']);
+$selectedDay = $hasDayParam ? (int) $_GET['day'] : null;
+
+if($hasDayParam && $selectedDay === 0){
+    $selectedDay = null;
+}
+
+if(!$hasDayParam){
+    if($selectedYear === $todayYear && $selectedMonth === $todayMonth){
+        $selectedDay = $todayDay;
+    }else{
+        $selectedDay = 1;
+    }
+}
+
+if($selectedDay !== null && $selectedDay < 1){
+    $selectedDay = 1;
+}
+
+if($selectedDay !== null && $selectedDay > $daysInMonth){
+    $selectedDay = $daysInMonth;
+}
 
 $dailyProducts = [];
 $dailyTotalRevenue = 0;
@@ -259,9 +283,6 @@ $topProducts[]=$row;
 
 $monthName=date("F",mktime(0,0,0,$selectedMonth,1));
 
-$todayDay=date("j");
-$todayMonth=date("n");
-$todayYear=date("Y");
 $totalCustomers=$totals['total_customers'] ?? 0;
 $genderStmt=$conn->prepare("
 SELECT
@@ -291,6 +312,7 @@ $totalWomen=$genderRes['women'] ?? 0;
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Professional Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="assets/css/responsive.css">
 
 <style>
 
@@ -364,10 +386,12 @@ color:#001a47;
 display:grid;
 gap:15px;
 margin:0;
+grid-template-columns:minmax(0,1fr);
 }
 
 .dashboard-grid .card{
 height:100%;
+min-width:0;
 }
 
 @media(min-width:900px){
@@ -383,6 +407,7 @@ background:#fff;
 padding:20px;
 border-radius:16px;
 box-shadow:0 8px 20px rgba(0,0,0,0.05);
+min-width:0;
 }
 
 .card table{
@@ -396,6 +421,7 @@ justify-content:center;
 align-items:center;
 gap:10px;
 margin-bottom:8px;
+flex-wrap:wrap;
 }
 
 /* ===== GRAPH ===== */
@@ -418,6 +444,7 @@ border-radius:12px;
 text-align:center;
 cursor:pointer;
 transition:0.2s;
+min-width:0;
 }
 
 .metric:hover{
@@ -428,22 +455,65 @@ background:#dce5ff;
 margin:0;
 font-size:20px;
 color:#001a47;
+overflow-wrap:anywhere;
+}
+
+.metric span{
+display:block;
+}
+
+.customers-card{
+display:flex;
+flex-direction:column;
+justify-content:center;
 }
 
 /* ===== CALENDAR ===== */
 .calendar{
 display:grid;
-grid-template-columns:repeat(7,1fr);
+grid-template-columns:repeat(7,minmax(0,1fr));
 gap:8px;
 }
 
 .calendar div{
-padding:10px;
-text-align:center;
 background:#f1f3f7;
 border-radius:8px;
-font-size:13px;
 cursor:pointer;
+min-width:0;
+}
+
+.calendar-day{
+aspect-ratio:1 / 1;
+display:flex;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+gap:4px;
+padding:6px 4px;
+text-align:center;
+font-size:0;
+line-height:0;
+}
+
+.calendar-day-number{
+font-size:15px;
+line-height:1;
+}
+
+.calendar-day::after,
+.calendar-day-sales{
+font-size:10px;
+line-height:1.2;
+font-weight:600;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+max-width:100%;
+}
+
+.calendar-day::after{
+content:attr(data-sales);
+display:block;
 }
 
 .calendar div:hover{
@@ -456,8 +526,9 @@ color:#fff;
 }
 
 .selected-day{
-background:#3f6bff !important;
-color:#fff;
+background:#d6d9df !important;
+color:#1f2937;
+box-shadow:inset 0 0 0 1px #b8bec8;
 }
 
 /* ===== BUTTON ===== */
@@ -528,8 +599,277 @@ color:#001a47;
 margin-top:4px;
 font-weight:600;
 }
+.chart-header{
+justify-content:space-between;
+}
+
+.month-nav{
+justify-content:space-between;
+}
+
+.month-nav strong{
+flex:1;
+text-align:center;
+color:#001a47;
+font-size:16px;
+}
+
+.summary-line{
+margin-top:15px;
+font-weight:600;
+color:#001a47;
+overflow-wrap:anywhere;
+}
+
+.table-wrap{
+width:100%;
+overflow-x:auto;
+}
+
+.dashboard-table{
+width:100%;
+border-collapse:collapse;
+}
+
+.dashboard-table th,
+.dashboard-table td{
+padding:10px;
+}
+
+.top-seller{
+margin-bottom:10px;
+font-weight:600;
+color:#001a47;
+overflow-wrap:anywhere;
+}
 .card table tr:hover{
 background:#f9fbff;
+}
+
+@media (max-width:1100px){
+.header{
+padding:20px 24px;
+}
+
+.logo{
+left:24px;
+}
+
+.container{
+padding:20px 24px;
+}
+
+.metrics{
+grid-template-columns:repeat(3,minmax(0,1fr));
+}
+}
+
+@media (max-width:768px){
+.header{
+padding:16px;
+display:flex;
+flex-direction:column;
+align-items:center;
+gap:10px;
+}
+
+.logo{
+position:static;
+transform:none;
+height:34px;
+}
+
+.dashboard-title{
+font-size:20px;
+}
+
+.container{
+padding:16px;
+}
+
+.section-title{
+font-size:20px;
+margin:16px 0 10px;
+}
+
+.card{
+padding:16px;
+border-radius:14px;
+}
+
+.chart-container{
+height:220px;
+}
+
+.chart-header,
+.month-nav{
+justify-content:flex-start;
+align-items:stretch;
+}
+
+.chart-header form,
+.chart-header select{
+width:100%;
+}
+
+.month-nav strong{
+order:-1;
+flex:1 1 100%;
+}
+
+.month-nav button{
+flex:1 1 calc(50% - 5px);
+}
+
+.metrics{
+grid-template-columns:repeat(2,minmax(0,1fr));
+gap:12px;
+}
+
+.metric{
+padding:14px 12px;
+min-height:110px;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+gap:6px;
+}
+
+.gender-count{
+flex-direction:column;
+gap:8px;
+}
+
+.divider{
+width:36px;
+height:1px;
+}
+
+.calendar{
+grid-template-columns:repeat(7,minmax(0,1fr));
+gap:6px;
+}
+
+.calendar-day{
+padding:4px 2px;
+gap:3px;
+}
+
+.calendar-day-number{
+font-size:13px;
+}
+
+.calendar-day::after,
+.calendar-day-sales{
+font-size:9px;
+}
+
+.dashboard-table thead{
+display:none;
+}
+
+.dashboard-table,
+.dashboard-table tbody,
+.dashboard-table tr,
+.dashboard-table td{
+display:block;
+width:100%;
+}
+
+.dashboard-table tr{
+padding:12px 0;
+border-bottom:1px solid #eee;
+}
+
+.dashboard-table td{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:12px;
+padding:6px 0 !important;
+text-align:left !important;
+}
+
+.dashboard-table td::before{
+content:"";
+flex:0 0 88px;
+font-weight:600;
+color:#64748b;
+}
+
+.daily-sales-table td:nth-child(1)::before,
+.top-products-table td:nth-child(1)::before{
+content:"Product";
+}
+
+.daily-sales-table td:nth-child(2)::before,
+.top-products-table td:nth-child(2)::before{
+content:"Sold";
+}
+
+.daily-sales-table td:nth-child(3)::before,
+.top-products-table td:nth-child(3)::before{
+content:"Revenue";
+}
+
+.daily-sales-table tr.total-row td{
+font-weight:600;
+}
+}
+
+@media (max-width:520px){
+.metrics{
+grid-template-columns:repeat(2,minmax(0,1fr));
+gap:10px;
+}
+
+.metric{
+min-height:96px;
+padding:12px 10px;
+border-radius:10px;
+}
+
+.metric h3{
+font-size:18px;
+}
+
+.metric span{
+font-size:13px;
+}
+
+.customers-card{
+grid-column:auto;
+min-height:96px;
+gap:4px;
+}
+
+.gender-count{
+flex-direction:row;
+justify-content:center;
+align-items:flex-start;
+gap:10px;
+margin-bottom:2px;
+}
+
+.gender-block h3{
+font-size:16px;
+}
+
+.gender-block span,
+.gender-label{
+font-size:11px;
+line-height:1.2;
+}
+
+.divider{
+width:1px;
+height:22px;
+}
+
+.chart-container{
+height:200px;
+}
 }
 
 </style>
@@ -565,13 +905,18 @@ Select a day from calendar
 
 <?php else: ?>
 
-<table style="width:100%;border-collapse:collapse;">
+<div class="table-wrap">
+<table class="dashboard-table daily-sales-table">
 
+<thead>
 <tr style="text-align:left;border-bottom:1px solid #eee;">
 <th style="padding:10px;">Product</th>
 <th style="padding:10px;">Sold</th>
 <th style="padding:10px;">Revenue</th>
 </tr>
+</thead>
+
+<tbody>
 
 <?php if(empty($dailyProducts)): ?>
 <tr>
@@ -595,7 +940,7 @@ No sales on this day
 </tr>
 <?php endforeach; ?>
 
-<tr style="background:#f1f3f7;font-weight:600;">
+<tr class="total-row" style="background:#f1f3f7;font-weight:600;">
 <td colspan="2" style="padding:10px;text-align:right;">TOTAL</td>
 <td style="padding:10px;color:#001a47;">
 ₱<?= number_format($dailyTotalRevenue,2) ?>
@@ -604,7 +949,9 @@ No sales on this day
 
 <?php endif; ?>
 
+</tbody>
 </table>
+</div>
 
 <?php endif; ?>
 
@@ -614,10 +961,10 @@ No sales on this day
 <!-- ✅ RIGHT: GRAPH -->
 <div class="card">
 
-<div class="card-header">
+<div class="card-header chart-header">
 <span>Monthly Sales</span>
 
-<form method="GET">
+<form method="GET" id="yearFilterForm">
 <input type="hidden" name="month" value="<?= $selectedMonth ?>">
 <select name="year" onchange="this.form.submit()">
 <?php foreach($years as $year): ?>
@@ -632,7 +979,7 @@ No sales on this day
 <canvas id="chart"></canvas>
 </div>
 
-<div style="margin-top:15px;font-weight:600;color:#001a47;">
+<div class="summary-line">
 <span id="summaryText">Month Total: ₱<?= number_format($totalSales,2) ?></span>
 </div>
 
@@ -690,7 +1037,7 @@ Consumers
 <!-- ✅ BELOW RIGHT: CALENDAR -->
 <div class="card">
 
-<div class="card-header">
+<div class="card-header month-nav">
 
 <button onclick="changeMonth(-1)">&lt;</button>
 <strong><?= $monthName ?> <?= $selectedYear ?></strong>
@@ -702,19 +1049,25 @@ Consumers
 
 <?php for($i=1;$i<=$daysInMonth;$i++): 
 
-$todayClass="";
-if($i==$todayDay && $selectedMonth==$todayMonth && $selectedYear==$todayYear){
-$todayClass="today";
+$dayClasses=[];
+$isToday = $i==$todayDay && $selectedMonth==$todayMonth && $selectedYear==$todayYear;
+if($isToday){
+$dayClasses[]="today";
+}
+
+if($i==$selectedDay && !$isToday){
+$dayClasses[]="selected-day";
 }
 
 ?>
 
 <div 
-class="<?= $todayClass ?>"
+class="calendar-day <?= implode(' ', $dayClasses) ?>"
 onclick="selectDay(<?= $i ?>)"
 data-day="<?= $i ?>"
+data-sales="&#8369;<?= number_format($dailySales[$i]) ?>"
 >
-<strong><?= $i ?></strong><br>
+<strong class="calendar-day-number"><?= $i ?></strong>
 ₱<?= number_format($dailySales[$i]) ?>
 </div>
 
@@ -733,17 +1086,22 @@ data-day="<?= $i ?>"
 <div class="card">
 
 <?php if(!empty($topProducts)): ?>
-<div style="margin-bottom:10px;font-weight:600;color:#001a47;">
+<div class="top-seller">
 🔥 Best Seller: <?= htmlspecialchars($topProducts[0]['product_name']) ?>
 </div>
 <?php endif; ?>
 
-<table style="width:100%;border-collapse:collapse;">
+<div class="table-wrap">
+<table class="dashboard-table top-products-table">
+<thead>
 <tr style="text-align:left;border-bottom:1px solid #eee;">
 <th style="padding:10px;">Product</th>
 <th style="padding:10px;">Sold</th>
 <th style="padding:10px;">Revenue</th>
 </tr>
+</thead>
+
+<tbody>
 
 <?php if(empty($topProducts)): ?>
 <tr>
@@ -766,7 +1124,9 @@ Try selecting another month or wait for new orders
 
 <?php endif; ?>
 
+</tbody>
 </table>
+</div>
 
 </div>
 
@@ -790,9 +1150,34 @@ const monthFollowers = <?= $totalFollowers ?>;
 const monthOrders = <?= $totalOrders ?>;
 const monthCustomers = <?= $totalCustomers ?>;
 const monthVisitors = <?= $totalVisitors ?>;
+const dashboardScrollStorageKey = "profdashboard_scroll_y";
+const yearFilterForm = document.getElementById("yearFilterForm");
 
 let selectedDay = null;
 let activeMetric = "sales";
+
+function saveDashboardScrollPosition(){
+try{
+sessionStorage.setItem(dashboardScrollStorageKey, String(window.scrollY || window.pageYOffset || 0));
+}catch(error){
+// Ignore storage failures and continue navigation normally.
+}
+}
+
+function restoreDashboardScrollPosition(){
+try{
+const savedScrollY = parseInt(sessionStorage.getItem(dashboardScrollStorageKey), 10);
+
+if(Number.isFinite(savedScrollY)){
+window.scrollTo(0, savedScrollY);
+sessionStorage.removeItem(dashboardScrollStorageKey);
+}
+}catch(error){
+// Ignore storage failures and keep the default browser behavior.
+}
+}
+
+restoreDashboardScrollPosition();
 
 /* ===== GRAPH ===== */
 const ctx = document.getElementById("chart");
@@ -910,11 +1295,20 @@ if(index === 4) updateGraph("sales");
 
 /* ===== CALENDAR ===== */
 function selectDay(day){
+saveDashboardScrollPosition();
+
+if(selectedDayFromPHP === day){
+window.location.href = "?month=<?= $selectedMonth ?>&year=<?= $selectedYear ?>&day=0";
+return;
+}
+
 window.location.href = "?month=<?= $selectedMonth ?>&year=<?= $selectedYear ?>&day=" + day;
 }
 
 /* ===== CHANGE MONTH ===== */
 function changeMonth(step){
+
+saveDashboardScrollPosition();
 
 let month = <?= $selectedMonth ?> + step;
 let year  = <?= $selectedYear ?>;
@@ -931,6 +1325,12 @@ year++;
 
 window.location.href = "?month="+month+"&year="+year;
 
+}
+
+if(yearFilterForm){
+yearFilterForm.addEventListener("submit", function(){
+saveDashboardScrollPosition();
+});
 }
 
 </script>

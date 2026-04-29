@@ -88,6 +88,7 @@ while($row = $result->fetch_assoc()){
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>My Orders</title>
+<link rel="stylesheet" href="assets/css/responsive.css">
 
 <style>
 
