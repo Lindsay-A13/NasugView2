@@ -62,9 +62,7 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
 
 <div class="page-wrapper">
 
-<div class="header">
-    <img src="assets/images/logo.png">
-</div>
+<div class="header"></div>
 
 <div class="container">
 <div class="calendar">

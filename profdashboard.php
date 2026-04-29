@@ -880,7 +880,6 @@ height:200px;
 <?php include 'mobile_back_button.php'; ?>
 
 <div class="header">
-<img src="assets/images/logo.png" class="logo">
 <div class="dashboard-title">Professional Dashboard</div>
 </div>
 

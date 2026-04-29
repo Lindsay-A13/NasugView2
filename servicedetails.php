@@ -87,7 +87,7 @@ $serviceImage = !empty($service['image'])
     : "uploads/services/default_service.jpg";
 $businessImage = !empty($service['business_photo'])
     ? "uploads/business_cover/" . $service['business_photo']
-    : "assets/images/logo.png";
+    : "assets/images/default-cover.png";
 $mapLink = "https://www.google.com/maps/search/?api=1&query=" . urlencode($service['address'] ?? '');
 ?>
 <!DOCTYPE html>
@@ -150,7 +150,6 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 <?php include 'mobile_back_button.php'; ?>
 
 <div class="header">
-<a href="home.php" class="logo"><img src="assets/images/logo.png" alt="NasugView"></a>
 <a href="cart.php" class="cart-btn">
     <i class="fa fa-shopping-cart"></i>
     <?php if($cartCount > 0): ?>

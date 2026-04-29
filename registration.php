@@ -382,9 +382,7 @@ button{
 <body>
 <?php include 'mobile_back_button.php'; ?>
 
-<div class="header">
-    <img src="assets/images/logo.png" alt="Logo">
-</div>
+<div class="header"></div>
 
 <div class="container">
 

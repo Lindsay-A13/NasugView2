@@ -237,7 +237,6 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 <div class="container">
 
 <div class="topbar">
-  <img src="assets/images/logo.png" class="logo">
   <div class="search-bar">
     <input type="text" id="searchInput" placeholder="Search...">
     <i class="fa fa-search"></i>
@@ -255,6 +254,7 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
   <button class="category-btn active" data-category="all">All</button>
   <button class="category-btn" data-category="nearby">Nearby</button>
   <?php while($cat=$categories->fetch_assoc()): ?>
+    <?php if(strtolower(trim($cat['category_name'])) === 'nearby') continue; ?>
     <button class="category-btn" data-category="<?= $cat['category_id']; ?>">
       <?= htmlspecialchars($cat['category_name']); ?>
     </button>
@@ -404,8 +404,8 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
    data-rating="<?= round($biz['avg_rating']); ?>">
 <?php 
 $img = !empty($biz['business_photo']) 
-       ? "uploads/business_cover/" . $biz['business_photo'] 
-       : "assets/images/logo.png";
+       ? "uploads/business_cover/" . $biz['business_photo']
+       : "assets/images/default-cover.png";
 ?>
 <img src="<?= $img; ?>">    <div class="business-body">
       <div class="business-name">

@@ -113,7 +113,6 @@ $post_stmt->bind_param("i", $user_id);
 
 <div class="header">
 <div class="header-inner">
-<img src="assets/images/logo.png">
 </div>
 </div>
 

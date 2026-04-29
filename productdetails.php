@@ -250,7 +250,6 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;}
 <?php include 'mobile_back_button.php'; ?>
 
 <div class="header">
-<a href="home.php" class="logo"><img src="assets/images/logo.png" alt="NasugView"></a>
 <a href="cart.php" class="cart-btn" id="cartIcon">
     <i class="fa fa-shopping-cart"></i>
     <span class="cart-badge" id="cartBadge" style="<?= $cartCount > 0 ? '' : 'display:none;' ?>">

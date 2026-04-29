@@ -280,10 +280,6 @@ border-radius:10px;
 <?php include 'mobile_back_button.php'; ?>
 
 <div class="header">
-<a href="index.php" class="logo">
-<img src="assets/images/logo.png">
-</a>
-
 <a href="cart.php" class="cart-btn">
 <i class="fa fa-shopping-cart"></i>
 <?php if($cartCount > 0): ?>
@@ -299,7 +295,7 @@ border-radius:10px;
 <?php
 $cover = !empty($business['business_photo']) 
     ? "uploads/business_cover/" . $business['business_photo']
-    : "assets/images/logo.png";
+    : "assets/images/default-cover.png";
 ?>
 
 <img src="<?= $cover ?>" class="business-image">

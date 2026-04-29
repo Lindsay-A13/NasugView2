@@ -463,9 +463,6 @@ $reviews = $reviewStmt->get_result();
 <div class="container">
 
 <div class="topbar">
-
-<img src="assets/images/logo.png" class="logo">
-
 <div class="search-bar">
 <span>Search for ...</span>
 <i class="fa fa-search"></i>
@@ -491,7 +488,7 @@ Welcome, <?php echo htmlspecialchars($_SESSION['username']); ?>!
 <?php while($row = $topRated->fetch_assoc()): ?>
 
 <?php
-$photo = "assets/images/logo.png";
+$photo = "assets/images/default-cover.png";
 $roundedRating = (int) round((float) ($row['avg_rating'] ?? 0));
 
 if(!empty($row['business_photo'])){
@@ -543,7 +540,7 @@ if(!empty($row['business_photo'])){
 <?php while($row = $featured->fetch_assoc()): ?>
 
 <?php
-$photo = "assets/images/logo.png";
+$photo = "assets/images/default-cover.png";
 $roundedRating = (int) round((float) ($row['avg_rating'] ?? 0));
 
 if(!empty($row['business_photo'])){

@@ -249,9 +249,7 @@ body{
 <body>
 <?php include 'mobile_back_button.php'; ?>
 
-<div class="header">
-    <img src="assets/images/logo.png">
-</div>
+<div class="header"></div>
 
 <div class="container">
 

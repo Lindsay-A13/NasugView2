@@ -372,7 +372,7 @@ body{margin:0;font-family:Arial;background:#ffff;}
 
     <div class="card">
 <?php
-$cover = "assets/images/logo.png";
+$cover = "assets/images/default-cover.png";
 
 if(!empty($data['business_photo'])){
     $path = "uploads/business_cover/".$data['business_photo'];

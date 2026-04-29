@@ -207,7 +207,6 @@ body {
 <div class="container">
 
     <div class="page-title">
-        <img src="assets/images/logo.png" alt="Logo">
         <a href="cart.php" class="cart-btn">
     <i class="fa fa-shopping-cart"></i>
 
