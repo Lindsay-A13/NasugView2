@@ -37,7 +37,14 @@ if(!$conn->query($createReviewsTableSql)){
 }
 
 $stmt = $conn->prepare("
-    SELECT inventory.*, business_owner.business_name
+    SELECT
+        inventory.*,
+        business_owner.b_id AS business_id,
+        business_owner.business_name,
+        business_owner.description AS business_description,
+        business_owner.phone,
+        business_owner.address,
+        business_owner.business_photo
     FROM inventory
     JOIN business_owner ON inventory.owner_id = business_owner.b_id
     WHERE inventory.id = ?
@@ -51,9 +58,13 @@ if(!$product){
     die("Product not found.");
 }
 
+$stockCount = max(0, (int) ($product['stock'] ?? 0));
+$isOutOfStock = $stockCount <= 0;
+$canAddToCart = !$isOutOfStock;
+
 if(isset($_POST['submit_review'])){
     if($account_type !== 'consumer'){
-        header("Location: productdetails.php?id=".$id."&review=invalid_user");
+        header("Location: productdetails.php?id=" . $id . "&review=invalid_user");
         exit;
     }
 
@@ -62,7 +73,7 @@ if(isset($_POST['submit_review'])){
     $isAnonymous = isset($_POST['anonymous']) ? 1 : 0;
 
     if($rating < 1 || $rating > 5 || $comment === ''){
-        header("Location: productdetails.php?id=".$id."&review=invalid");
+        header("Location: productdetails.php?id=" . $id . "&review=invalid");
         exit;
     }
 
@@ -79,21 +90,31 @@ if(isset($_POST['submit_review'])){
     $reviewSaved = $reviewStmt->execute();
     $reviewStmt->close();
 
-    header("Location: productdetails.php?id=".$id."&review=".($reviewSaved ? "saved" : "failed"));
+    header("Location: productdetails.php?id=" . $id . "&review=" . ($reviewSaved ? "saved" : "failed"));
     exit;
 }
 
-/* AJAX ADD TO CART */
 if(isset($_POST['ajax_add'])){
+    if($isOutOfStock){
+        echo "out_of_stock";
+        exit;
+    }
+
     $qty = max(1, (int) ($_POST['quantity'] ?? 1));
+
+    if($qty > $stockCount){
+        echo "stock_limit";
+        exit;
+    }
+
     $user_id = (int) $_SESSION['user_id'];
 
     $check = $conn->prepare("
         SELECT id, quantity
         FROM cart
-        WHERE consumer_id=?
-        AND account_type=?
-        AND product_id=?
+        WHERE consumer_id = ?
+          AND account_type = ?
+          AND product_id = ?
     ");
     $check->bind_param("isi", $user_id, $account_type, $id);
     $check->execute();
@@ -103,10 +124,16 @@ if(isset($_POST['ajax_add'])){
         $row = $result->fetch_assoc();
         $newQty = $row['quantity'] + $qty;
 
+        if($newQty > $stockCount){
+            $check->close();
+            echo "stock_limit";
+            exit;
+        }
+
         $update = $conn->prepare("
             UPDATE cart
-            SET quantity=?
-            WHERE id=?
+            SET quantity = ?
+            WHERE id = ?
         ");
         $update->bind_param("ii", $newQty, $row['id']);
         $update->execute();
@@ -180,6 +207,13 @@ $productReviewsStmt->execute();
 $productReviews = $productReviewsStmt->get_result();
 
 $reviewStatus = $_GET['review'] ?? '';
+$productImage = !empty($product['image'])
+    ? "uploads/product/" . $product['image']
+    : "uploads/product/default_product.jpg";
+$businessImage = !empty($product['business_photo'])
+    ? "uploads/business_cover/" . $product['business_photo']
+    : "assets/images/default-cover.png";
+$mapLink = "https://www.google.com/maps/search/?api=1&query=" . urlencode($product['address'] ?? '');
 ?>
 <!DOCTYPE html>
 <html>
@@ -191,57 +225,91 @@ $reviewStatus = $_GET['review'] ?? '';
 <link rel="stylesheet" href="assets/css/responsive.css"/>
 
 <style>
-body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;}
-.header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:#fff;z-index:1000;}
-.logo img{height:38px;}
-.cart-btn,.cart-btn:visited{position:relative;background:rgba(0,26,71,0.08);padding:8px;border-radius:50%;color:#001a47;font-size:18px;text-decoration:none;}
-.cart-badge{position:absolute;top:-4px;right:-4px;background:#e74c3c;color:#fff;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:50%;}
-.cart-shake{animation:cartShake .4s ease;}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f172a}
+.header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:#fff;z-index:1000}
+.cart-btn,.cart-btn:visited{position:relative;background:rgba(0,26,71,0.08);padding:8px;border-radius:50%;color:#001a47;font-size:18px;text-decoration:none}
+.cart-badge{position:absolute;top:-4px;right:-4px;background:#e74c3c;color:#fff;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:50%}
+.cart-shake{animation:cartShake .4s ease}
 @keyframes cartShake{0%{transform:rotate(0)}25%{transform:rotate(-10deg)}50%{transform:rotate(10deg)}75%{transform:rotate(-5deg)}100%{transform:rotate(0)}}
-.fly-image{position:fixed;z-index:9999;pointer-events:none;border-radius:12px;transition:all .6s cubic-bezier(.4,-0.3,.6,1.4);}
-.container{max-width:1100px;margin:auto;padding:20px;padding-bottom:140px;}
-.product-card{display:grid;grid-template-columns:1fr 1fr;gap:30px;background:#fff;padding:25px;border-radius:14px;box-shadow:0 8px 22px rgba(0,0,0,.08);}
-.product-image{width:100%;border-radius:12px;object-fit:cover;}
-.category{color:#555;margin:10px 0;}
-.price{font-size:26px;color:#001a47;font-weight:bold;}
-.description{margin:15px 0;line-height:1.5;}
-.btn-cart{width:100%;padding:14px;border:none;border-radius:10px;background:#001a47;color:#fff;cursor:pointer;}
-.reviews-section{margin-top:30px;background:#fff;padding:20px;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.06);}
-.reviews-header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
-.review-summary{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
-.review-score{font-size:30px;font-weight:700;color:#001a47;line-height:1;}
-.review-meta{display:flex;flex-direction:column;gap:4px;}
-.review-stars{display:flex;gap:3px;color:#001a47;}
-.review-count{font-size:14px;color:#64748b;}
-.btn-rate{background:#001a47;color:#fff;border:none;padding:10px 18px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;}
-.review-status{margin-bottom:14px;padding:12px 14px;border-radius:10px;font-size:14px;}
-.review-status.success{background:#ecfdf3;color:#166534;border:1px solid #bbf7d0;}
-.review-status.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
-.review-list{display:flex;flex-direction:column;gap:14px;}
-.review-item{border:1px solid #e5e7eb;border-radius:14px;padding:16px;}
-.review-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
-.review-user{display:flex;align-items:center;gap:12px;}
-.review-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:#f1f5f9;}
-.review-name{font-weight:600;color:#0f172a;}
-.review-date{font-size:13px;color:#64748b;margin-top:2px;}
-.review-rating{display:flex;gap:3px;color:#001a47;}
-.review-comment{line-height:1.6;color:#334155;white-space:pre-wrap;}
-.empty-reviews{padding:18px;border:1px dashed #cbd5e1;border-radius:14px;text-align:center;color:#64748b;background:#f8fafc;}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;justify-content:center;align-items:center;padding:16px;z-index:3000;overflow-y:auto;}
-.modal.active{display:flex;}
-.modal-content{width:100%;max-width:420px;background:#fff;border-radius:16px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.15);position:relative;max-height:calc(100vh - 32px);overflow-y:auto;}
-.modal-close{position:absolute;top:10px;right:12px;font-size:18px;cursor:pointer;color:#666;}
-.modal-subtitle{font-size:14px;color:#64748b;margin:-4px 0 16px;}
-.stars{display:flex;gap:6px;font-size:24px;margin-bottom:12px;}
-.stars i{color:#d1d5db;cursor:pointer;transition:color .15s ease,transform .15s ease;}
-.stars i.active{color:#001a47;}
-.stars i:hover{transform:scale(1.06);}
-.modal textarea{width:100%;height:110px;border-radius:10px;border:1px solid #e5e7eb;padding:12px;margin-bottom:12px;resize:none;font:inherit;box-sizing:border-box;}
-.anonymous-toggle{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:#334155;font-size:14px;}
-.submit-review{width:100%;padding:12px;border:none;border-radius:12px;background:#001a47;color:#fff;font-weight:600;cursor:pointer;}
+.fly-image{position:fixed;z-index:9999;pointer-events:none;border-radius:12px;transition:all .6s cubic-bezier(.4,-0.3,.6,1.4)}
+.container{max-width:1100px;margin:auto;padding:20px;padding-bottom:140px}
+.detail-card{display:grid;grid-template-columns:1.05fr .95fr;gap:28px;background:#fff;padding:24px;border-radius:16px;box-shadow:0 8px 22px rgba(0,0,0,.08)}
+.product-image{width:100%;height:100%;min-height:320px;object-fit:cover;border-radius:14px;background:#f8fafc}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:10px}
+.product-title{margin:0 0 10px;font-size:32px;line-height:1.15;color:#001a47}
+.product-meta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.meta-chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#f8fafc;border:1px solid #e2e8f0;font-size:13px;color:#334155}
+.price{font-size:30px;font-weight:700;color:#001a47;margin:10px 0 14px}
+.rating-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.rating-stars{display:flex;gap:4px;color:#001a47}
+.rating-text{font-size:14px;color:#64748b}
+.description{line-height:1.7;color:#334155;margin-bottom:18px;white-space:pre-wrap}
+.action-row{display:flex;gap:12px;flex-wrap:wrap}
+.action-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 16px;border-radius:12px;text-decoration:none;font-weight:600}
+.action-btn.primary{background:#001a47;color:#fff}
+.action-btn.secondary{border:1px solid #cbd5e1;color:#001a47;background:#fff}
+.purchase-card{margin-top:20px;padding:16px;border:1px solid #e2e8f0;border-radius:16px;background:#f8fafc}
+.purchase-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.purchase-title{font-size:16px;font-weight:700;color:#001a47}
+.stock-badge{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;font-size:13px;font-weight:600}
+.stock-badge.in-stock{background:#ecfdf3;color:#166534}
+.stock-badge.out-stock{background:#fef2f2;color:#b91c1c}
+.qty-control{display:inline-flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;border:1px solid #dbe2ea;background:#fff}
+.qty-btn{width:34px;height:34px;border:none;border-radius:10px;background:#e2e8f0;color:#0f172a;font-size:18px;cursor:pointer}
+.qty-value{min-width:20px;text-align:center;font-size:16px;font-weight:700;color:#001a47}
+.btn-cart{width:100%;margin-top:14px;padding:14px;border:none;border-radius:12px;background:#001a47;color:#fff;cursor:pointer;font-weight:600;font-size:15px}
+.btn-cart:disabled{background:#94a3b8;cursor:not-allowed}
+.purchase-note{margin-top:10px;font-size:13px;color:#64748b}
+.info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:28px}
+.panel{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px}
+.panel h2{margin:0 0 14px;font-size:18px;color:#001a47}
+.business-card{display:flex;gap:14px;align-items:flex-start}
+.business-photo{width:84px;height:84px;border-radius:12px;object-fit:cover;background:#f8fafc}
+.business-name{font-size:18px;font-weight:700;color:#001a47;margin-bottom:6px}
+.business-copy{font-size:14px;line-height:1.6;color:#475569}
+.details-list{display:flex;flex-direction:column;gap:10px}
+.details-item{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:#334155}
+.details-item i{width:16px;color:#001a47;margin-top:2px}
+.reviews-section{margin-top:28px;background:#fff;padding:20px;border-radius:16px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
+.reviews-header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.review-summary{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.review-score{font-size:30px;font-weight:700;color:#001a47;line-height:1}
+.review-meta{display:flex;flex-direction:column;gap:4px}
+.review-stars{display:flex;gap:3px;color:#001a47}
+.review-count{font-size:14px;color:#64748b}
+.btn-rate{background:#001a47;color:#fff;border:none;padding:10px 18px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600}
+.review-status{margin-bottom:14px;padding:12px 14px;border-radius:10px;font-size:14px}
+.review-status.success{background:#ecfdf3;color:#166534;border:1px solid #bbf7d0}
+.review-status.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+.review-list{display:flex;flex-direction:column;gap:14px}
+.review-item{border:1px solid #e5e7eb;border-radius:14px;padding:16px}
+.review-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.review-user{display:flex;align-items:center;gap:12px}
+.review-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:#f1f5f9}
+.review-name{font-weight:600;color:#0f172a}
+.review-date{font-size:13px;color:#64748b;margin-top:2px}
+.review-rating{display:flex;gap:3px;color:#001a47}
+.review-comment{line-height:1.6;color:#334155;white-space:pre-wrap}
+.empty-reviews{padding:18px;border:1px dashed #cbd5e1;border-radius:14px;text-align:center;color:#64748b;background:#f8fafc}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;justify-content:center;align-items:center;padding:16px;z-index:3000;overflow-y:auto}
+.modal.active{display:flex}
+.modal-content{width:100%;max-width:420px;background:#fff;border-radius:16px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.15);position:relative;max-height:calc(100vh - 32px);overflow-y:auto}
+.modal-close{position:absolute;top:10px;right:12px;font-size:18px;cursor:pointer;color:#666}
+.modal-subtitle{font-size:14px;color:#64748b;margin:-4px 0 16px}
+.stars{display:flex;gap:6px;font-size:24px;margin-bottom:12px}
+.stars i{color:#d1d5db;cursor:pointer;transition:color .15s ease,transform .15s ease}
+.stars i.active{color:#001a47}
+.stars i:hover{transform:scale(1.06)}
+.modal textarea{width:100%;height:110px;border-radius:10px;border:1px solid #e5e7eb;padding:12px;margin-bottom:12px;resize:none;font:inherit;box-sizing:border-box}
+.anonymous-toggle{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:#334155;font-size:14px}
+.submit-review{width:100%;padding:12px;border:none;border-radius:12px;background:#001a47;color:#fff;font-weight:600;cursor:pointer}
 @media (max-width:768px){
-  .product-card{grid-template-columns:1fr;gap:20px;padding:18px;}
-  .container{padding:16px;padding-bottom:130px;}
+  .container{padding:16px;padding-bottom:130px}
+  .detail-card{grid-template-columns:1fr;gap:20px;padding:18px}
+  .product-image{min-height:240px}
+  .product-title{font-size:28px}
+  .info-grid{grid-template-columns:1fr}
 }
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
@@ -251,48 +319,117 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;}
 
 <div class="header">
 <a href="cart.php" class="cart-btn" id="cartIcon">
-    <i class="fa fa-shopping-cart"></i>
-    <span class="cart-badge" id="cartBadge" style="<?= $cartCount > 0 ? '' : 'display:none;' ?>">
-        <?= $cartCount ?>
-    </span>
+<i class="fa fa-shopping-cart"></i>
+<span class="cart-badge" id="cartBadge" style="<?= $cartCount > 0 ? '' : 'display:none;' ?>">
+<?= $cartCount ?>
+</span>
 </a>
 </div>
 
 <div class="container">
-
-<div class="product-card">
-
-<img src="uploads/product/<?= htmlspecialchars($product['image'] ?: 'default_product.jpg') ?>"
-class="product-image"
-id="productImage"
-alt="<?= htmlspecialchars($product['name']) ?>">
-
-<div class="product-info">
-
-<h1><?= htmlspecialchars($product['name']) ?></h1>
-
-<div class="category">
-Business: <?= htmlspecialchars($product['business_name']) ?>
+<div class="detail-card">
+<div>
+<img src="<?= htmlspecialchars($productImage) ?>" class="product-image" id="productImage" alt="<?= htmlspecialchars($product['name']) ?>">
 </div>
 
-<div class="price">
-&#8369;<?= number_format((float) $product['price'], 2) ?>
+<div>
+<div class="eyebrow">Product</div>
+<h1 class="product-title"><?= htmlspecialchars($product['name']) ?></h1>
+
+<div class="product-meta">
+<div class="meta-chip"><i class="fa fa-store"></i><?= htmlspecialchars($product['business_name']) ?></div>
+<?php if(!empty($product['type'])): ?>
+<div class="meta-chip"><i class="fa fa-tag"></i><?= htmlspecialchars(ucfirst($product['type'])) ?></div>
+<?php endif; ?>
+<div class="meta-chip"><i class="fa fa-box"></i><?= $stockCount ?> in stock</div>
 </div>
 
-<div class="description">
-<?= htmlspecialchars($product['description'] ?? '') ?>
+<div class="price">&#8369;<?= number_format((float) $product['price'], 2) ?></div>
+
+<div class="rating-row">
+<div class="rating-stars" aria-label="<?= $totalReviews > 0 ? number_format($avgRating, 1) : '0.0' ?> out of 5 stars">
+<?php for($i = 1; $i <= 5; $i++): ?>
+<i class="fa <?= $i <= $roundedAvgRating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
+<?php endfor; ?>
+</div>
+<div class="rating-text">
+<?= $totalReviews > 0 ? number_format($avgRating, 1) : '0.0' ?> (<?= $totalReviews ?> review<?= $totalReviews === 1 ? '' : 's' ?>)
+</div>
 </div>
 
-<div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;">
-<button type="button" onclick="decreaseQty()" style="width:32px;height:32px;border:none;border-radius:6px;background:#eee;">-</button>
-<span id="qty" style="font-size:16px;font-weight:600;">1</span>
-<button type="button" onclick="increaseQty()" style="width:32px;height:32px;border:none;border-radius:6px;background:#eee;">+</button>
+<div class="description"><?= htmlspecialchars($product['description'] ?: 'No description available for this product yet.') ?></div>
+
+<div class="action-row">
+<a href="businessdetails.php?id=<?= (int) $product['business_id'] ?>" class="action-btn primary">
+<i class="fa fa-store"></i> Visit Business
+</a>
+<?php if(!empty($product['address'])): ?>
+<a href="<?= htmlspecialchars($mapLink) ?>" target="_blank" class="action-btn secondary">
+<i class="fa fa-location-dot"></i> Open Map
+</a>
+<?php endif; ?>
 </div>
 
-<button type="button" class="btn-cart" onclick="addToCartAnimation()">
-<i class="fa fa-cart-plus"></i> Add to Cart
+<div class="purchase-card">
+<div class="purchase-top">
+<div class="purchase-title">Add to Cart</div>
+<div class="stock-badge <?= $isOutOfStock ? 'out-stock' : 'in-stock' ?>">
+<i class="fa <?= $isOutOfStock ? 'fa-circle-xmark' : 'fa-circle-check' ?>"></i>
+<?= $isOutOfStock ? 'Out of Stock' : 'Available Now' ?>
+</div>
+</div>
+
+<div class="qty-control">
+<button type="button" class="qty-btn" onclick="decreaseQty()">-</button>
+<span id="qty" class="qty-value">1</span>
+<button type="button" class="qty-btn" onclick="increaseQty()">+</button>
+</div>
+
+<button type="button" class="btn-cart" id="addToCartBtn" onclick="addToCartAnimation()" <?= $canAddToCart ? '' : 'disabled' ?>>
+<i class="fa fa-cart-plus"></i>
+<?= $isOutOfStock ? 'Out of Stock' : 'Add to Cart' ?>
 </button>
 
+<div class="purchase-note">
+<?php if($isOutOfStock): ?>
+This product is currently unavailable.
+<?php else: ?>
+Choose your quantity and add this item directly to your cart.
+<?php endif; ?>
+</div>
+</div>
+</div>
+</div>
+
+<div class="info-grid">
+<div class="panel">
+<h2>Business Info</h2>
+<div class="business-card">
+<img src="<?= htmlspecialchars($businessImage) ?>" class="business-photo" alt="<?= htmlspecialchars($product['business_name']) ?>">
+<div>
+<div class="business-name"><?= htmlspecialchars($product['business_name']) ?></div>
+<div class="business-copy"><?= htmlspecialchars($product['business_description'] ?? 'No business description available.') ?></div>
+</div>
+</div>
+
+<div class="details-list" style="margin-top:16px;">
+<?php if(!empty($product['phone'])): ?>
+<div class="details-item"><i class="fa fa-phone"></i><span><?= htmlspecialchars($product['phone']) ?></span></div>
+<?php endif; ?>
+<?php if(!empty($product['address'])): ?>
+<div class="details-item"><i class="fa fa-location-dot"></i><span><?= htmlspecialchars($product['address']) ?></span></div>
+<?php endif; ?>
+</div>
+</div>
+
+<div class="panel">
+<h2>Product Details</h2>
+<div class="details-list">
+<div class="details-item"><i class="fa fa-tag"></i><span><?= htmlspecialchars(ucfirst($product['type'] ?? 'Product')) ?></span></div>
+<div class="details-item"><i class="fa fa-box"></i><span><?= $stockCount ?> item<?= $stockCount === 1 ? '' : 's' ?> in stock</span></div>
+<div class="details-item"><i class="fa fa-money-bill-wave"></i><span>&#8369;<?= number_format((float) $product['price'], 2) ?></span></div>
+<div class="details-item"><i class="fa fa-star"></i><span><?= $totalReviews > 0 ? number_format($avgRating, 1) : '0.0' ?> average rating</span></div>
+</div>
 </div>
 </div>
 
@@ -309,9 +446,12 @@ Business: <?= htmlspecialchars($product['business_name']) ?>
 <div class="review-count"><?= $totalReviews ?> review<?= $totalReviews === 1 ? '' : 's' ?></div>
 </div>
 </div>
+
+<?php if($account_type === 'consumer'): ?>
 <button type="button" class="btn-rate" onclick="openModal()">
 <?= $userReview ? 'Edit Your Review' : 'Rate & Review' ?>
 </button>
+<?php endif; ?>
 </div>
 
 <?php if($reviewStatus === 'saved'): ?>
@@ -328,13 +468,13 @@ Business: <?= htmlspecialchars($product['business_name']) ?>
 <?php
 $displayName = 'Anonymous';
 if((int) $review['is_anonymous'] !== 1){
-    $fullName = trim(($review['fname'] ?? '').' '.($review['lname'] ?? ''));
+    $fullName = trim(($review['fname'] ?? '') . ' ' . ($review['lname'] ?? ''));
     $displayName = $fullName !== '' ? $fullName : ($review['username'] ?? 'Customer');
 }
 
 $avatar = 'assets/images/default-profile.png';
 if((int) $review['is_anonymous'] !== 1 && !empty($review['profile_picture'])){
-    $avatar = 'uploads/profile/'.$review['profile_picture'];
+    $avatar = 'uploads/profile/' . $review['profile_picture'];
 }
 ?>
 <div class="review-item">
@@ -356,13 +496,10 @@ if((int) $review['is_anonymous'] !== 1 && !empty($review['profile_picture'])){
 </div>
 <?php endwhile; ?>
 <?php else: ?>
-<div class="empty-reviews">
-No reviews yet. Share the first review for this product.
-</div>
+<div class="empty-reviews">No reviews yet. Share the first review for this product.</div>
 <?php endif; ?>
 </div>
 </div>
-
 </div>
 
 <div class="modal" id="modal">
@@ -395,10 +532,13 @@ Post as Anonymous
 
 <script>
 let quantity = 1;
+const maxStock = <?= $stockCount ?>;
 
 function increaseQty(){
-  quantity++;
-  document.getElementById("qty").innerText = quantity;
+  if(maxStock > 0 && quantity < maxStock){
+    quantity++;
+    document.getElementById("qty").innerText = quantity;
+  }
 }
 
 function decreaseQty(){
@@ -409,16 +549,20 @@ function decreaseQty(){
 }
 
 function addToCartAnimation(){
+  const addToCartBtn = document.getElementById("addToCartBtn");
+  if(addToCartBtn.disabled){
+    return;
+  }
+
   const productImg = document.getElementById("productImage");
   const cartIcon = document.getElementById("cartIcon");
   const cartBadge = document.getElementById("cartBadge");
-
   const imgRect = productImg.getBoundingClientRect();
   const cartRect = cartIcon.getBoundingClientRect();
   const centerX = window.innerWidth / 2 - imgRect.width / 4;
   const centerY = window.innerHeight / 2 - imgRect.height / 4;
-
   const flyImg = productImg.cloneNode(true);
+
   flyImg.classList.add("fly-image");
   flyImg.style.top = imgRect.top + "px";
   flyImg.style.left = imgRect.left + "px";
@@ -451,17 +595,30 @@ function addToCartAnimation(){
   })
   .then(res => res.text())
   .then(data => {
-    setTimeout(() => {
+    const result = data.trim();
+
+    if(result !== "inserted" && result !== "updated"){
       flyImg.remove();
 
+      if(result === "out_of_stock"){
+        alert("This product is out of stock.");
+      } else if(result === "stock_limit"){
+        alert("Requested quantity exceeds available stock.");
+      }
+      return;
+    }
+
+    setTimeout(() => {
+      flyImg.remove();
       cartIcon.classList.add("cart-shake");
+
       setTimeout(() => {
         cartIcon.classList.remove("cart-shake");
       }, 400);
 
-      if(data.trim() === "inserted"){
-        let currentCount = parseInt(cartBadge.innerText, 10) || 0;
-        let newCount = currentCount + 1;
+      if(result === "inserted"){
+        const currentCount = parseInt(cartBadge.innerText, 10) || 0;
+        const newCount = currentCount + 1;
 
         cartBadge.innerText = newCount;
         cartBadge.style.display = "inline-block";
