@@ -553,7 +553,7 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
 <?php require_once "config/theme.php"; render_theme_head(); ?>
 </head>
 
-<body>
+<body class="inventory-page">
 <?php include 'mobile_back_button.php'; ?>
 
 <div class="header"></div>
@@ -574,7 +574,7 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
 
 <?php if($tab=="list"): ?>
 
-<div style="
+<div class="inventory-toolbar" style="
 margin-bottom:15px;
 display:flex;
 justify-content:space-between;
@@ -583,12 +583,13 @@ gap:10px;
 flex-wrap:wrap;
 ">
 
-<div style="display:flex; gap:10px; flex:1;">
+<div class="inventory-filters" style="display:flex; gap:10px; flex:1;">
 
 <input
 type="text"
 id="searchInput"
 placeholder="Search product..."
+class="inventory-search"
 style="
 padding:10px;
 border:1px solid #ddd;
@@ -600,6 +601,7 @@ onkeyup="filterTable()"
 
 <select
 id="categoryFilter"
+class="inventory-filter"
 style="
 padding:10px;
 border:1px solid #ddd;
@@ -782,7 +784,7 @@ No categories yet
 
 <?php if($tab=="services"): ?>
 
-<div style="
+<div class="service-toolbar" style="
 margin-bottom:15px;
 display:flex;
 justify-content:space-between;
@@ -795,6 +797,7 @@ flex-wrap:wrap;
 type="text"
 id="serviceSearchInput"
 placeholder="Search service..."
+class="service-search"
 style="
 padding:10px;
 border:1px solid #ddd;

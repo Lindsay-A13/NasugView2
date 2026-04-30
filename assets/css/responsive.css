@@ -33,6 +33,13 @@ button{
     margin-inline:auto;
 }
 
+@media (min-width: 769px){
+    .inventory-page .container{
+        width:calc(100% - (var(--responsive-gutter) * 2));
+        max-width:1440px;
+    }
+}
+
 .topbar,
 .header,
 .header-row,
@@ -196,5 +203,42 @@ button{
     textarea[style]{
         width:100% !important;
         max-width:100% !important;
+    }
+
+    .creviews-page .container{
+        padding-top:16px;
+    }
+
+    .creviews-page .filter-bar{
+        justify-content:center;
+        gap:12px;
+    }
+
+    .creviews-page .filter-bar form,
+    .creviews-page .review-card,
+    .creviews-page .no-review{
+        width:calc(100% - (var(--responsive-gutter) * 2));
+        max-width:680px;
+        margin-left:auto;
+        margin-right:auto;
+    }
+
+    .creviews-page .review-top{
+        align-items:flex-start;
+        gap:8px;
+    }
+
+    .creviews-page .review-meta{
+        width:100%;
+        justify-content:space-between;
+    }
+
+    .creviews-page .review-img{
+        display:block;
+        margin-inline:auto;
+    }
+
+    .creviews-page .hide-btn{
+        width:100%;
     }
 }

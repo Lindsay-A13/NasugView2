@@ -74,26 +74,59 @@ $cover = !empty($user['cover_photo'])
 
 /* LOAD POSTS */
 
-if ($account_type === "consumers") {
+$posts = [];
 
-    $post_stmt = $conn->prepare("
+$postQueries = [];
+
+if ($account_type === "consumer") {
+    $postQueries[] = "
+        SELECT id, caption, image_path AS image, created_at
+        FROM posts
+        WHERE user_id = ? AND account_type = 'consumer'
+        ORDER BY created_at DESC, id DESC
+    ";
+    $postQueries[] = "
         SELECT id, caption, image, created_at
         FROM post
         WHERE consumer_id = ?
         ORDER BY created_at DESC
-    ");
-
+    ";
 } else {
-
-    $post_stmt = $conn->prepare("
+    $postQueries[] = "
+        SELECT id, caption, image_path AS image, created_at
+        FROM posts
+        WHERE user_id = ? AND account_type = 'business_owner'
+        ORDER BY created_at DESC, id DESC
+    ";
+    $postQueries[] = "
         SELECT id, caption, image, created_at
         FROM post
         WHERE business_id = ?
         ORDER BY created_at DESC
-    ");
+    ";
 }
 
-$post_stmt->bind_param("i", $user_id);
+$post_stmt = false;
+
+foreach($postQueries as $postQuery){
+    $candidate = $conn->prepare($postQuery);
+    if($candidate){
+        $post_stmt = $candidate;
+        break;
+    }
+}
+
+if($post_stmt){
+    $post_stmt->bind_param("i", $user_id);
+    $post_stmt->execute();
+    $post_result = $post_stmt->get_result();
+
+    while($post = $post_result->fetch_assoc()){
+        $posts[] = $post;
+    }
+
+    $post_stmt->close();
+}
 ?>
 
 <!DOCTYPE html>
@@ -150,11 +183,7 @@ $post_stmt->bind_param("i", $user_id);
 <!-- POSTS -->
 <div id="posts" class="tab-content active">
 <div class="grid">
-<?php
-$post_stmt->execute();
-$post_result = $post_stmt->get_result();
-while($post = $post_result->fetch_assoc()):
-?>
+<?php foreach($posts as $post): ?>
 <div class="card">
 <?php if(!empty($post['image'])): ?>
 <img src="uploads/<?= htmlspecialchars($post['image']) ?>">
@@ -164,23 +193,20 @@ while($post = $post_result->fetch_assoc()):
 <p><?= htmlspecialchars($post['created_at']) ?></p>
 </div>
 </div>
-<?php endwhile; ?>
+<?php endforeach; ?>
 </div>
 </div>
 
 <!-- MEDIA -->
 <div id="media" class="tab-content">
 <div class="grid">
-<?php
-$post_stmt->execute();
-$post_result = $post_stmt->get_result();
-while($post = $post_result->fetch_assoc()):
-if(!empty($post['image'])):
-?>
+<?php foreach($posts as $post): ?>
+<?php if(!empty($post['image'])): ?>
 <div class="card">
 <img src="uploads/<?= htmlspecialchars($post['image']) ?>">
 </div>
-<?php endif; endwhile; ?>
+<?php endif; ?>
+<?php endforeach; ?>
 </div>
 </div>
 

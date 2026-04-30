@@ -7,6 +7,7 @@ $account_type = $_SESSION['account_type'];
 
 $success = "";
 $error = "";
+$accountLabel = ucwords(str_replace("_", " ", $account_type));
 
 /* LOAD USER INFO */
 
@@ -63,42 +64,6 @@ $error="Update failed.";
 }
 
 
-/* BUSINESS PERMIT */
-
-if(isset($_POST['upload_permit']) && $account_type==="business_owner"){
-
-if(isset($_FILES['permit']) && $_FILES['permit']['error']==0){
-
-$folder="uploads/permits/";
-
-if(!is_dir($folder)){
-mkdir($folder,0777,true);
-}
-
-$file=time()."_".basename($_FILES['permit']['name']);
-$path=$folder.$file;
-
-if(move_uploaded_file($_FILES['permit']['tmp_name'],$path)){
-
-$stmt=$conn->prepare("
-UPDATE business_owner
-SET business_permit=?
-WHERE b_id=?
-");
-
-$stmt->bind_param("si",$path,$user_id);
-$stmt->execute();
-
-$success="Business permit uploaded.";
-
-}else{
-$error="Upload failed.";
-}
-
-}
-
-}
-
 ?>
 
 <!DOCTYPE html>
@@ -107,6 +72,7 @@ $error="Upload failed.";
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Settings</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <link rel="stylesheet" href="assets/css/responsive.css">
 
 <style>
@@ -433,6 +399,91 @@ font-weight:700;
 text-decoration:underline;
 }
 
+.overview-list{
+display:grid;
+gap:14px;
+}
+
+.overview-item{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:16px;
+padding:16px 18px;
+border-radius:18px;
+background:var(--surface-muted);
+border:1px solid var(--border);
+}
+
+.overview-label{
+font-size:12px;
+font-weight:700;
+letter-spacing:0.08em;
+text-transform:uppercase;
+color:var(--muted);
+}
+
+.overview-value{
+font-size:15px;
+font-weight:700;
+line-height:1.5;
+text-align:right;
+}
+
+.link-list{
+display:grid;
+gap:12px;
+}
+
+.settings-link{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:16px;
+padding:16px 18px;
+border-radius:18px;
+background:var(--surface-muted);
+border:1px solid var(--border);
+text-decoration:none;
+color:inherit;
+transition:transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-link:hover{
+transform:translateY(-1px);
+border-color:rgba(79, 70, 229, 0.35);
+box-shadow:0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+.settings-link-title{
+margin:0 0 4px;
+font-size:15px;
+font-weight:700;
+}
+
+.settings-link-text{
+margin:0;
+font-size:13px;
+line-height:1.5;
+color:var(--muted);
+}
+
+.settings-link-icon{
+font-size:20px;
+color:var(--primary);
+flex-shrink:0;
+}
+
+.security-list{
+display:grid;
+gap:12px;
+padding-left:20px;
+margin:0;
+color:var(--muted);
+font-size:14px;
+line-height:1.6;
+}
+
 .theme-dark{
 --bg:#000000;
 --bg-accent:none;
@@ -538,9 +589,9 @@ width:100%;
 <div class="hero">
 <div>
 <h1 class="hero-title" data-i18n="hero_title">Settings</h1>
-<p class="hero-subtitle" data-i18n="hero_subtitle">Manage your account details, business requirements, display preferences, and support options in one place.</p>
+<p class="hero-subtitle" data-i18n="hero_subtitle">Manage your account details, profile visibility, accessibility preferences, and support shortcuts in one place.</p>
 </div>
-<div class="hero-badge"><?php echo htmlspecialchars(ucwords(str_replace("_", " ", $account_type))); ?> Account</div>
+<div class="hero-badge"><?php echo htmlspecialchars($accountLabel); ?> Account</div>
 </div>
 
 <?php if($success): ?>
@@ -592,26 +643,28 @@ width:100%;
 </div>
 </div>
 
-<?php if($account_type==="business_owner"): ?>
 <div class="section">
 <div class="section-head">
-<h2 class="section-title" data-i18n="business_permit_title">Business Permit</h2>
-<p class="section-desc" data-i18n="business_permit_desc">Upload or replace your permit file to keep your business account verified and compliant.</p>
+<h2 class="section-title" data-i18n="account_overview_title">Account Overview</h2>
+<p class="section-desc" data-i18n="account_overview_desc">A quick summary of the account currently signed in on this device.</p>
 </div>
 <div class="card-body">
-<form method="POST" enctype="multipart/form-data">
-<div class="field full">
-<label data-i18n="upload_permit_label">Upload Permit</label>
-<input type="file" name="permit" accept=".jpg,.jpeg,.png,.pdf">
+<div class="overview-list">
+<div class="overview-item">
+<span class="overview-label" data-i18n="overview_account_type">Account Type</span>
+<span class="overview-value"><?php echo htmlspecialchars($accountLabel); ?></span>
 </div>
-
-<div class="actions">
-<button type="submit" name="upload_permit" data-i18n="upload_permit_button">Upload Permit</button>
+<div class="overview-item">
+<span class="overview-label" data-i18n="overview_username">Username</span>
+<span class="overview-value"><?php echo htmlspecialchars($user['username']); ?></span>
 </div>
-</form>
+<div class="overview-item">
+<span class="overview-label" data-i18n="overview_contact_email">Contact Email</span>
+<span class="overview-value"><?php echo htmlspecialchars($user['email']); ?></span>
 </div>
 </div>
-<?php endif; ?>
+</div>
+</div>
 
 </div>
 
@@ -649,6 +702,54 @@ width:100%;
 </div>
 </div>
 
+<div class="section">
+<div class="section-head">
+<h2 class="section-title" data-i18n="account_tools_title">Account Tools</h2>
+<p class="section-desc" data-i18n="account_tools_desc">Shortcuts to the pages people usually expect to access from Settings.</p>
+</div>
+<div class="card-body">
+<div class="link-list">
+<a href="profile.php" class="settings-link">
+<div>
+<p class="settings-link-title" data-i18n="profile_link_title">Profile</p>
+<p class="settings-link-text" data-i18n="profile_link_desc">Review your public profile, cover photo, and personal information.</p>
+</div>
+<span class="settings-link-icon"><i class="fa fa-user"></i></span>
+</a>
+
+<a href="notifications.php" class="settings-link">
+<div>
+<p class="settings-link-title" data-i18n="notifications_link_title">Notifications</p>
+<p class="settings-link-text" data-i18n="notifications_link_desc">Check order activity, reviews, and other account alerts.</p>
+</div>
+<span class="settings-link-icon"><i class="fa fa-bell"></i></span>
+</a>
+
+<a href="more.php?logout=1" class="settings-link">
+<div>
+<p class="settings-link-title" data-i18n="logout_link_title">Log Out</p>
+<p class="settings-link-text" data-i18n="logout_link_desc">Sign out of this device when you are using a shared or public computer.</p>
+</div>
+<span class="settings-link-icon"><i class="fa fa-right-from-bracket"></i></span>
+</a>
+</div>
+</div>
+</div>
+
+<div class="section">
+<div class="section-head">
+<h2 class="section-title" data-i18n="security_title">Security Tips</h2>
+<p class="section-desc" data-i18n="security_desc">Recommended habits to help protect your account until dedicated security controls are added.</p>
+</div>
+<div class="card-body">
+<ul class="security-list">
+<li data-i18n="security_tip_1">Use a unique password that you do not reuse on other sites or apps.</li>
+<li data-i18n="security_tip_2">Keep your email address current so account recovery and important notices reach you.</li>
+<li data-i18n="security_tip_3">Log out after using shared devices, especially in schools, shops, or public workstations.</li>
+</ul>
+</div>
+</div>
+
 </div>
 
 </div>
@@ -667,7 +768,7 @@ const languageStorageKey = "settings_language";
 const translations = {
 en: {
 hero_title: "Settings",
-hero_subtitle: "Manage your account details, business requirements, display preferences, and support options in one place.",
+hero_subtitle: "Manage your account details, profile visibility, accessibility preferences, and support shortcuts in one place.",
 account_settings_title: "Account Settings",
 account_settings_desc: "Keep your public profile and contact details accurate for smoother account recovery and updates.",
 label_username: "Username",
@@ -675,20 +776,34 @@ label_email: "Email",
 label_first_name: "First Name",
 label_last_name: "Last Name",
 update_information: "Update Information",
-business_permit_title: "Business Permit",
-business_permit_desc: "Upload or replace your permit file to keep your business account verified and compliant.",
-upload_permit_label: "Upload Permit",
-upload_permit_button: "Upload Permit",
+account_overview_title: "Account Overview",
+account_overview_desc: "A quick summary of the account currently signed in on this device.",
+overview_account_type: "Account Type",
+overview_username: "Username",
+overview_contact_email: "Contact Email",
 accessibility_title: "Accessibility",
 accessibility_desc: "Adjust your display preferences for readability and a more comfortable browsing experience.",
 language_title: "Language",
 language_desc: "Select the interface language used in this page.",
 dark_mode_title: "Dark Mode",
-dark_mode_desc: "Use a darker color palette across the settings page and bottom navigation."
+dark_mode_desc: "Use a darker color palette across the settings page and bottom navigation.",
+account_tools_title: "Account Tools",
+account_tools_desc: "Shortcuts to the pages people usually expect to access from Settings.",
+profile_link_title: "Profile",
+profile_link_desc: "Review your public profile, cover photo, and personal information.",
+notifications_link_title: "Notifications",
+notifications_link_desc: "Check order activity, reviews, and other account alerts.",
+logout_link_title: "Log Out",
+logout_link_desc: "Sign out of this device when you are using a shared or public computer.",
+security_title: "Security Tips",
+security_desc: "Recommended habits to help protect your account until dedicated security controls are added.",
+security_tip_1: "Use a unique password that you do not reuse on other sites or apps.",
+security_tip_2: "Keep your email address current so account recovery and important notices reach you.",
+security_tip_3: "Log out after using shared devices, especially in schools, shops, or public workstations."
 },
 fil: {
 hero_title: "Mga Setting",
-hero_subtitle: "Pamahalaan ang detalye ng iyong account, mga kailangan sa negosyo, mga display preference, at mga opsyon sa suporta sa iisang lugar.",
+hero_subtitle: "Pamahalaan ang detalye ng iyong account, profile visibility, accessibility preferences, at support shortcuts sa iisang lugar.",
 account_settings_title: "Mga Setting ng Account",
 account_settings_desc: "Panatilihing tama ang iyong pampublikong profile at contact details para sa mas maayos na account recovery at updates.",
 label_username: "Username",
@@ -696,16 +811,30 @@ label_email: "Email",
 label_first_name: "Unang Pangalan",
 label_last_name: "Apelyido",
 update_information: "I-update ang Impormasyon",
-business_permit_title: "Permit ng Negosyo",
-business_permit_desc: "Mag-upload o magpalit ng permit file upang manatiling beripikado at sumusunod sa mga requirement ang iyong business account.",
-upload_permit_label: "Mag-upload ng Permit",
-upload_permit_button: "Mag-upload ng Permit",
+account_overview_title: "Buod ng Account",
+account_overview_desc: "Mabilis na buod ng account na kasalukuyang naka-sign in sa device na ito.",
+overview_account_type: "Uri ng Account",
+overview_username: "Username",
+overview_contact_email: "Contact Email",
 accessibility_title: "Accessibility",
 accessibility_desc: "Ayusin ang iyong display preferences para sa mas malinaw at mas komportableng paggamit.",
 language_title: "Wika",
 language_desc: "Piliin ang wikang gagamitin sa pahinang ito.",
 dark_mode_title: "Dark Mode",
-dark_mode_desc: "Gumamit ng mas madilim na kulay sa settings page at bottom navigation."
+dark_mode_desc: "Gumamit ng mas madilim na kulay sa settings page at bottom navigation.",
+account_tools_title: "Mga Tool ng Account",
+account_tools_desc: "Mga shortcut sa mga pahinang karaniwang hinahanap sa Settings.",
+profile_link_title: "Profile",
+profile_link_desc: "Tingnan ang iyong pampublikong profile, cover photo, at personal na impormasyon.",
+notifications_link_title: "Mga Notification",
+notifications_link_desc: "Suriin ang order activity, reviews, at iba pang account alerts.",
+logout_link_title: "Mag Log Out",
+logout_link_desc: "Mag-sign out sa device na ito lalo na kung shared o pampublikong computer ang gamit mo.",
+security_title: "Mga Paalala sa Seguridad",
+security_desc: "Mga inirerekomendang gawain para maprotektahan ang iyong account habang wala pang dagdag na security controls.",
+security_tip_1: "Gumamit ng natatanging password na hindi mo ginagamit sa ibang sites o apps.",
+security_tip_2: "Panatilihing updated ang iyong email address para makarating ang account recovery at importanteng abiso.",
+security_tip_3: "Mag-log out pagkatapos gumamit ng shared devices, lalo na sa paaralan, shop, o pampublikong workstation."
 }
 };
 
