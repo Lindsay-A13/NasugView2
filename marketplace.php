@@ -182,51 +182,87 @@ $businesses = $business_stmt->get_result();
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NasugView – Marketplace</title>
+<title>NasugView - Marketplace</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <link rel="stylesheet" href="assets/css/responsive.css"/>
 
 <style>
-html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff}
-.container{max-width:1100px;margin:auto;padding-bottom:80px}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;background:#fff;color:#000}
+.container{max-width:1100px;margin:auto;padding-bottom:96px}
 
-.topbar{display:flex;align-items:center;padding:10px 20px;gap:10px}
-.logo{width:100px;height:70px;object-fit:contain}
+.topbar{display:flex;align-items:center;padding:14px 20px 8px;gap:10px}
 
-.search-bar{flex:1;display:flex;align-items:center;background:#f0f0f0;border-radius:20px;padding:8px 12px}
-.search-bar input{border:none;outline:none;background:transparent;flex:1}
+.search-bar{flex:1;display:flex;align-items:center;background:#f0f0f0;border:1px solid #ddd;border-radius:24px;padding:10px 14px}
+.search-bar input{border:none;outline:none;background:transparent;flex:1;color:#000}
+.search-bar i{color:#001a47}
 
-.cart-btn{position:relative;background:rgba(0,26,71,0.08);padding:8px;border-radius:50%;color:#001a47;font-size:18px;text-decoration:none}
-.cart-badge{position:absolute;top:-4px;right:-4px;background:#e74c3c;color:#fff;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:50%}
+.cart-btn{position:relative;background:rgba(0,26,71,0.08);padding:10px;border-radius:50%;color:#001a47;font-size:18px;text-decoration:none;border:1px solid rgba(0,26,71,0.08)}
+.cart-badge{position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:50%}
 
 .category-bar{padding:10px 20px;display:flex;gap:10px;overflow-x:auto}
 .category-bar::-webkit-scrollbar{display:none}
-.category-btn{flex:0 0 auto;padding:10px 18px;border-radius:25px;border:1px solid #ddd;background:#f5f5f5;cursor:pointer;font-size:14px;white-space:nowrap;transition:.2s}
+.category-btn{flex:0 0 auto;padding:10px 18px;border-radius:999px;border:1px solid #ddd;background:#f5f5f5;cursor:pointer;font-size:14px;white-space:nowrap;transition:.2s;color:#000}
 .category-btn.active{background:#001a47;color:#fff;border-color:#001a47}
 
-.star-bar{padding:5px 20px 15px;display:flex;gap:10px}
-.star-btn{padding:6px 12px;border-radius:20px;border:1px solid #ddd;background:#f9f9f9;cursor:pointer}
+.star-bar{padding:4px 20px 12px;display:flex;gap:10px;overflow-x:auto}
+.star-bar::-webkit-scrollbar{display:none}
+.star-btn{padding:8px 12px;border-radius:999px;border:1px solid #ddd;background:#f9f9f9;cursor:pointer;color:#000}
 .star-btn.active{background:#001a47;color:#fff;border-color:#001a47}
+.star-btn i{color:#001a47}
 .star-btn.active i{color:#fff}
 
-.section-title{font-size:18px;font-weight:bold;color:#001a47;margin:15px 20px}
+.sort-row{padding:0 20px 12px;display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.sort-row span{font-size:13px;color:#555}
+.sort-row select{padding:9px 12px;border-radius:12px;border:1px solid #ccc;background:#fff;color:#000}
 
-.grid,.business-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:0 20px}
+.section-block{margin-top:8px}
+.section-title{font-size:18px;font-weight:800;color:#001a47;margin:18px 20px 12px}
 
-.product,.business{background:#fff;border-radius:10px;overflow:hidden;border:1px solid #ccc;text-decoration:none;color:inherit}
-.product img,.business img{width:100%;height:180px;object-fit:cover}
-.product-body,.business-body{padding:10px}
+.marketplace-grid,.business-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;padding:0 20px;width:100%}
 
-.product-name,.business-name{font-weight:bold;font-size:14px;color:#001a47}
-.meta-line{font-size:12px;color:#666;margin-top:4px}
-.distance-line{font-size:12px;color:#0f766e;margin-top:6px;font-weight:600}
+.marketplace-card,.product,.business{background:#fff;border-radius:16px;overflow:hidden;border:1px solid #ccc;text-decoration:none;color:inherit;box-shadow:0 8px 20px rgba(0,0,0,.08);min-width:0}
+.marketplace-card img,.product img,.business img{display:block;width:100%;height:190px;object-fit:cover;background:#f4f4f4}
 
-.stars{font-size:13px;margin-top:4px}
-.stars i{color:#ccc}
+.marketplace-body,.product-body,.business-body{padding:12px 12px 14px}
+.marketplace-name,.product-name,.business-name{font-weight:700;font-size:15px;line-height:1.25;color:#001a47;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.marketplace-subtitle{font-size:12px;color:#666;margin-top:4px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.meta-line{font-size:12px;color:#666;margin-top:4px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+
+.marketplace-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+.marketplace-price{font-size:14px;font-weight:700;color:#001a47}
+.marketplace-tag{font-size:11px;font-weight:700;color:#001a47;background:rgba(0,26,71,0.08);border-radius:999px;padding:5px 8px;white-space:nowrap}
+.product-body > div:nth-child(3){font-size:14px;font-weight:700;color:#001a47;margin-top:8px}
+.product-body > div[style*="font-size:12px;color:#888"]{display:inline-flex;margin-top:8px;padding:5px 8px;border-radius:999px;background:rgba(0,26,71,0.08);color:#001a47 !important;font-size:11px !important;font-weight:700}
+
+.stars{display:flex;align-items:center;gap:2px;font-size:13px;margin-top:8px;color:#001a47}
+.stars i{color:#d6d6d6}
 .stars i.fa-star{color:#001a47}
-.business .stars i.fa-star{color:#001a47}
+.rating-line{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.rating-line .stars{margin-top:0}
+.rating-value{font-size:13px;color:#777;font-weight:600}
+
+.distance-line{font-size:12px;line-height:1.35;color:#0f766e;margin-top:6px;font-weight:600}
 
 .hidden{display:none}
+
+@media (max-width: 768px){
+  .topbar{padding:14px 0 8px}
+  .category-bar,.star-bar,.sort-row,.marketplace-grid,.business-grid{padding-left:0 !important;padding-right:0 !important}
+  .section-title{margin-left:0 !important;margin-right:0 !important}
+  .sort-row{justify-content:center}
+  .star-bar{justify-content:center}
+  .marketplace-grid,.business-grid{grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:14px}
+  .marketplace-card img,.product img,.business img{height:156px !important;aspect-ratio:auto !important}
+  .marketplace-name,.product-name,.business-name{font-size:14px}
+}
+
+@media (max-width: 420px){
+  .topbar{gap:8px}
+  .marketplace-grid,.business-grid{gap:12px}
+  .marketplace-body,.product-body,.business-body{padding:10px 10px 12px}
+  .marketplace-card img,.product img,.business img{height:142px !important}
+}
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
 </head>
@@ -272,9 +308,9 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 <?php endfor; ?>
 </div>
 
-<div style="padding:0 20px 10px; display:flex; justify-content:flex-end; align-items:center; gap:8px;">
-  <span style="font-size:13px;color:#555;">Sort:</span>
-  <select id="priceSort" style="padding:8px;border-radius:8px;border:1px solid #ccc;">
+<div class="sort-row">
+  <span>Sort:</span>
+  <select id="priceSort">
     <option value="">Price</option>
     <option value="low">Low → High</option>
     <option value="high">High → Low</option>
@@ -283,10 +319,10 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 
 <!-- PRODUCTS -->
 <div class="section-title">Products</div>
-<div class="grid">
+<div class="grid marketplace-grid">
 <?php while($row=$products->fetch_assoc()): ?>
 <a href="productdetails.php?id=<?= $row['id']; ?>"
-   class="product"
+   class="product marketplace-card"
    data-price="<?= $row['price']; ?>"
    data-name="<?= strtolower($row['name']); ?>"
    data-description="<?= strtolower($row['description']); ?>"
@@ -300,19 +336,21 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
    data-longitude="<?= htmlspecialchars($row['longitude'] ?? '', ENT_QUOTES); ?>"
    data-owner="<?= $row['owner_id']; ?>"
    data-rating="<?= round($row['avg_rating']); ?>">
-    <img src="uploads/product/<?= $row['image'] ?: 'default_product.jpg'; ?>">
-    <div class="product-body">
-      <div class="product-name"><?= htmlspecialchars($row['name']); ?></div>
+    <img src="uploads/product/<?= $row['image'] ?: 'default_product.jpg'; ?>" alt="<?= htmlspecialchars($row['name']); ?>">
+    <div class="product-body marketplace-body">
+      <div class="product-name marketplace-name"><?= htmlspecialchars($row['name']); ?></div>
       <div class="meta-line"><?= htmlspecialchars($row['business_name']); ?></div>
       <div>₱<?= number_format($row['price'],2); ?></div>
+      <div class="rating-line">
       <div class="stars">
         <?php $rating = round($row['avg_rating']); for($i=1;$i<=5;$i++): ?>
           <i class="fa <?= $i <= $rating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
         <?php endfor; ?>
       </div>
-      <div style="font-size:12px;color:#777">
+      <div class="rating-value">
         <?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>
         (<?= (int) $row['total_reviews']; ?>)
+      </div>
       </div>
       <div class="distance-line" data-distance-label>Distance unavailable</div>
     </div>
@@ -328,11 +366,11 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 <!-- SERVICES -->
 <div class="section-title">Services</div>
 
-<div class="grid">
+<div class="grid marketplace-grid">
 <?php if($services->num_rows > 0): ?>
 <?php while($row=$services->fetch_assoc()): ?>
 <a href="servicedetails.php?id=<?= $row['id']; ?>"
-   class="product"
+   class="product marketplace-card"
    data-price="<?= $row['price']; ?>"
    data-name="<?= strtolower($row['name']); ?>"
    data-description="<?= strtolower($row['description']); ?>"
@@ -346,26 +384,28 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
    data-owner="<?= $row['owner_id']; ?>"
    data-rating="<?= round($row['avg_rating']); ?>">
 
-    <img src="uploads/services/<?= $row['image'] ?: 'default_service.jpg'; ?>">
+    <img src="uploads/services/<?= $row['image'] ?: 'default_service.jpg'; ?>" alt="<?= htmlspecialchars($row['name']); ?>">
 
-    <div class="product-body">
-        <div class="product-name"><?= htmlspecialchars($row['name']); ?></div>
+    <div class="product-body marketplace-body">
+        <div class="product-name marketplace-name"><?= htmlspecialchars($row['name']); ?></div>
 
         <!-- BUSINESS NAME -->
-        <div style="font-size:12px;color:#666;">
+        <div class="meta-line">
             <?= htmlspecialchars($row['business_name']); ?>
         </div>
 
         <div>₱<?= number_format($row['price'],2); ?></div>
 
+        <div class="rating-line">
         <div class="stars">
             <?php $rating = round($row['avg_rating']); for($i=1;$i<=5;$i++): ?>
               <i class="fa <?= $i <= $rating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
             <?php endfor; ?>
         </div>
-        <div style="font-size:12px;color:#777">
+        <div class="rating-value">
             <?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>
             (<?= (int) $row['total_reviews']; ?>)
+        </div>
         </div>
 
         <!-- DURATION -->
@@ -390,10 +430,10 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial;background:#fff
 <!-- BUSINESSES -->
 <div class="section-title">Businesses</div>
 
-<div class="business-grid">
+<div class="business-grid marketplace-grid">
 <?php while($biz=$businesses->fetch_assoc()): ?>
 <a href="businessdetails.php?id=<?= $biz['b_id']; ?>"
-   class="business"
+   class="business marketplace-card"
    data-id="<?= $biz['b_id']; ?>"
    data-name="<?= strtolower($biz['business_name']); ?>"
    data-category="<?= $biz['category_id']; ?>"
@@ -407,10 +447,11 @@ $img = !empty($biz['business_photo'])
        ? "uploads/business_cover/" . $biz['business_photo']
        : "assets/images/default-cover.png";
 ?>
-<img src="<?= $img; ?>">    <div class="business-body">
-      <div class="business-name">
+<img src="<?= $img; ?>" alt="<?= htmlspecialchars($biz['business_name']); ?>">    <div class="business-body marketplace-body">
+      <div class="business-name marketplace-name">
         <?= htmlspecialchars($biz['business_name']); ?>
       </div>
+      <div class="rating-line">
       <div class="stars">
       <?php 
       $rating = round($biz['avg_rating']);
@@ -419,9 +460,10 @@ $img = !empty($biz['business_photo'])
         <i class="fa <?= $i <= $rating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
       <?php endfor; ?>
       </div>
-      <div style="font-size:12px;color:#777">
+      <div class="rating-value">
         <?= $biz['avg_rating'] ? $biz['avg_rating'] : '0.0' ?>
         (<?= $biz['total_reviews']; ?>)
+      </div>
       </div>
       <div class="distance-line" data-distance-label>Distance unavailable</div>
     </div>
@@ -444,6 +486,11 @@ const searchInput = document.getElementById('searchInput');
 const categoryBtns = document.querySelectorAll('.category-btn');
 const starBtns = document.querySelectorAll('.star-btn');
 const priceSort = document.getElementById('priceSort');
+
+if(priceSort && priceSort.options.length >= 3){
+  priceSort.options[1].text = "Low to High";
+  priceSort.options[2].text = "High to Low";
+}
 
 let activeCategory = "all";
 let activeRating = null;

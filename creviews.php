@@ -124,6 +124,15 @@ function maskName($name){
 <link rel="stylesheet" href="assets/css/responsive.css"/>
 
 <style>
+*{
+    box-sizing:border-box;
+}
+
+html,
+body{
+    overflow-x:hidden;
+}
+
 body{
     font-family: Arial, sans-serif;
     margin:0;
@@ -144,6 +153,9 @@ body{
     max-width:1100px;
     margin:auto;
     padding:25px 20px 120px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
 }
 
 .filter-bar{
@@ -151,6 +163,7 @@ body{
     justify-content:space-between;
     align-items:center;
     margin-bottom:20px;
+    width:min(100%, 760px);
 }
 .filter-bar h2{
     margin:0;
@@ -171,6 +184,8 @@ body{
     margin-bottom:18px;
     box-shadow:0 4px 12px rgba(0,0,0,0.06);
     position:relative;
+    width:min(100%, 760px);
+    overflow:hidden;
 }
 
 .review-top{
@@ -200,11 +215,24 @@ body{
     color:#333;
 }
 
+.review-images{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:12px;
+    margin-top:14px;
+}
+
+.review-images.single-image{
+    grid-template-columns:minmax(0, 280px);
+}
+
 .review-img{
     width:100%;
-    max-width:280px;
-    margin-top:12px;
-    border-radius:10px;
+    aspect-ratio:1 / 1;
+    object-fit:cover;
+    border-radius:12px;
+    display:block;
+    background:#eef1f6;
 }
 
 .actions{
@@ -241,12 +269,55 @@ body{
     padding:40px;
     color:#777;
     font-weight:500;
+    width:min(100%, 760px);
+}
+@media (max-width: 480px){
+
+    .container{
+        padding:15px 12px 100px;
+    }
+
+    .filter-bar,
+    .review-card,
+    .no-review{
+        width:100%;
+    }
+
+    .review-card{
+        padding:15px;
+        border-radius:12px;
+    }
+
+    .filter-select{
+        width:100%;
+    }
+
+    .review-top{
+        flex-direction:column;
+        gap:4px;
+    }
+
+    .review-meta{
+        justify-content:space-between;
+        width:100%;
+    }
+
+    .hide-btn{
+        width:100%;
+        padding:10px;
+        border-radius:10px;
+    }
+
+    .review-images{
+        gap:10px;
+    }
+
 }
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
 </head>
 
-<body>
+<body class="creviews-page">
 <?php include 'mobile_back_button.php'; ?>
 
 <div class="header"></div>
@@ -320,9 +391,20 @@ if($row['is_anonymous'] == 1){
         <?= nl2br(htmlspecialchars($row['comment'])); ?>
     </div>
 
-    <?php if(!empty($row['images'])): ?>
-        <img src="<?= htmlspecialchars($row['images']); ?>" class="review-img">
-    <?php endif; ?>
+<?php if(!empty($row['images'])): ?>
+
+<?php
+$images = array_values(array_filter(array_map('trim', explode(',', $row['images']))));
+?>
+    <div class="review-images <?= count($images) === 1 ? 'single-image' : '' ?>">
+    <?php foreach($images as $img): ?>
+        <img src="uploads/reviews/<?= htmlspecialchars(trim($img)); ?>" 
+             class="review-img"
+             onerror="this.style.display='none'">
+    <?php endforeach; ?>
+    </div>
+
+<?php endif; ?>
 
     <div class="actions">
         <form method="POST">
