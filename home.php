@@ -636,7 +636,7 @@ aria-label="Open review image"
 <?php if(!$review['is_anonymous'] && !empty($review['profile_picture'])): ?>
 <img src="uploads/profile/<?php echo htmlspecialchars($review['profile_picture']); ?>" class="profile-pic">
 <?php else: ?>
-<img src="assets/images/default-profile.png" class="profile-pic">
+<img src="assets/images/avatar.jpg" class="profile-pic">
 <?php endif; ?>
 
 <div>

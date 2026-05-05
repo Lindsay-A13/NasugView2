@@ -66,7 +66,7 @@ body {
     margin-bottom: 20px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
 }
 
 .page-title img{
@@ -202,6 +202,12 @@ body {
       padding: 2px 6px;
       border-radius: 50%;
     }
+
+@media (max-width:768px){
+    .container{
+        padding-top:16px !important;
+    }
+}
 
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>

@@ -220,7 +220,7 @@ $cover = !empty($business['business_photo'])
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f172a}
-.header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:#fff;z-index:1000}
+.header{display:flex;justify-content:flex-end;align-items:center;padding:12px 20px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:#fff;z-index:1000}
 .cart-btn,.cart-btn:visited{position:relative;background:rgba(0,26,71,0.08);padding:8px;border-radius:50%;color:#001a47;text-decoration:none}
 .cart-badge{position:absolute;top:-4px;right:-4px;background:#e74c3c;color:#fff;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:50%}
 .container{max-width:1100px;margin:auto;padding:20px;padding-bottom:130px}
@@ -267,6 +267,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 @media (max-width:768px){
   .container{padding:16px;padding-bottom:120px}
   .hero-card{grid-template-columns:1fr;gap:20px;padding:18px}
+  .hero-card,.info-grid,.section-block,.reviews-section{width:min(100%,720px);margin-left:auto;margin-right:auto}
   .business-image{min-height:240px}
   .business-name{font-size:28px}
   .info-grid{grid-template-columns:1fr}
