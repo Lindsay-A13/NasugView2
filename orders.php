@@ -1,60 +1,37 @@
 <?php
 require_once "config/session.php";
 require_once "config/db.php";
+require_once "config/orders_helper.php";
 
 if($_SESSION['account_type'] !== "consumer"){
     header("Location: more.php");
     exit;
 }
 
+ensureOrderPaymentSupport($conn);
+
 $user_id = $_SESSION['user_id'];
 
-/* ===== AUTO COMPLETE AFTER 2 DAYS ===== */
-$auto = $conn->prepare("
-    UPDATE orders
-    SET status = 'Completed'
-    WHERE status = 'Confirmed'
-    AND consumer_id = ?
-    AND created_at <= DATE_SUB(NOW(), INTERVAL 2 DAY)
-");
-$auto->bind_param("i",$user_id);
-$auto->execute();
-
-/* ===== HANDLE ACTIONS ===== */
-if(isset($_POST['receive'])){
-    $code = $_POST['order_code'];
-
-    $update = $conn->prepare("
-        UPDATE orders 
-        SET status='Completed'
-        WHERE order_code=? AND consumer_id=?
-    ");
-    $update->bind_param("si",$code,$user_id);
-    $update->execute();
-
-    header("Location: orders.php?tab=Completed");
-    exit;
-}
-
 if(isset($_POST['cancel'])){
-    $code = $_POST['order_code'];
+    $code = trim($_POST['order_code'] ?? '');
 
     $update = $conn->prepare("
-        UPDATE orders 
-        SET status='Cancelled'
-        WHERE order_code=? AND consumer_id=? AND status='Pending'
+        UPDATE orders
+        SET status = 'Cancelled'
+        WHERE order_code = ? AND consumer_id = ? AND status = 'Pending'
     ");
-    $update->bind_param("si",$code,$user_id);
+    $update->bind_param("si", $code, $user_id);
     $update->execute();
+    $update->close();
 
     header("Location: orders.php?tab=Cancelled");
     exit;
 }
 
-/* ===== TAB FILTER ===== */
-$allowedTabs = ['All','Pending','Confirmed','Completed','Cancelled'];
+$allowedTabs = ['All','Pending','For Payment','Completed','Cancelled','Refund'];
 $currentTab = $_GET['tab'] ?? 'All';
-if(!in_array($currentTab,$allowedTabs)){
+
+if(!in_array($currentTab, $allowedTabs, true)){
     $currentTab = 'All';
 }
 
@@ -67,13 +44,13 @@ $query = "
 ";
 
 if($currentTab !== 'All'){
-    $query .= " AND o.status = '".$currentTab."'";
+    $query .= " AND o.status = '" . $currentTab . "'";
 }
 
 $query .= " ORDER BY o.created_at DESC";
 
 $stmt = $conn->prepare($query);
-$stmt->bind_param("i",$user_id);
+$stmt->bind_param("i", $user_id);
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -81,6 +58,7 @@ $grouped = [];
 while($row = $result->fetch_assoc()){
     $grouped[$row['order_code']][] = $row;
 }
+$stmt->close();
 ?>
 
 <!DOCTYPE html>
@@ -91,288 +69,54 @@ while($row = $result->fetch_assoc()){
 <link rel="stylesheet" href="assets/css/responsive.css">
 
 <style>
-
-/* ===== RESET ===== */
-*{
-    box-sizing:border-box;
-}
-
-body{
-    margin:0;
-    font-family: Arial, sans-serif;
-    background:#f4f6f9;
-}
-
-/* ===== PAGE WRAPPER ===== */
-.page-wrapper{
-    min-height:100vh;
-    padding-bottom:90px; /* space for bottom nav */
-}
-
-/* ===== CONTAINER ===== */
-.container{
-    width:100%;
-    padding:15px;
-}
-
-/* Desktop Center */
-@media(min-width:768px){
-    .container{
-        max-width:1500px;
-        margin:0 auto;
-        padding:25px;
-    }
-}
-
-/* ===== TITLE ===== */
-h2{
-    margin:0 0 15px 0;
-    color:#001a47;
-}
-
-/* ===== TABS ===== */
-.tabs{
-    display:flex;
-    gap:10px;
-    margin-bottom:20px;
-    overflow-x:auto;
-}
-
-.tabs::-webkit-scrollbar{
-    display:none;
-}
-
-.tab{
-    padding:6px 14px;
-    border-radius:20px;
-    background:#e9ecef;
-    text-decoration:none;
-    color:#001a47;
-    font-size:13px;
-    white-space:nowrap;
-}
-
-.tab.active{
-    background:#001a47;
-    color:#fff;
-}
-
-/* ===== ORDER CARD ===== */
-.order-box{
-    background:#fff;
-    border-radius:14px;
-    padding:15px;
-    margin-bottom:15px;
-    box-shadow:0 3px 10px rgba(0,0,0,0.05);
-}
-
-.order-header{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    margin-bottom:10px;
-    flex-wrap:wrap;
-    gap:5px;
-}
-
-.status{
-    padding:4px 10px;
-    border-radius:15px;
-    font-size:11px;
-    font-weight:600;
-}
-
-.pending{ background:#fff3cd; color:#856404; }
-.confirmed{ background:#cce5ff; color:#004085; }
-.completed{ background:#d4edda; color:#155724; }
-.cancelled{ background:#f8d7da; color:#721c24; }
-.no-orders{
-    text-align:center;
-    color:#9ca3af;   /* soft grey */
-    font-size:15px;
-    padding:40px 0;
-}
-
-/* ===== ITEM ===== */
-.order-item{
-    display:flex;
-    gap:10px;
-    padding:10px 0;
-    border-top:1px solid #eee;
-}
-
-.order-item img{
-    width:60px;
-    height:60px;
-    border-radius:8px;
-    object-fit:cover;
-}
-
-.item-info{
-    flex:1;
-    font-size:13px;
-}
-
-/* ===== TOTAL ===== */
-.order-total{
-    font-weight:bold;
-    margin-top:8px;
-    text-align:right;
-    font-size:14px;
-}
-
-/* ===== ACTIONS ===== */
-.actions{
-    margin-top:12px;
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    justify-content:flex-end;
-}
-.action-form{
-    margin:0;
-}
-
-.btn{
-    padding:6px 12px;
-    border:none;
-    border-radius:6px;
-    font-size:12px;
-    cursor:pointer;
-}
-
-.btn-receive{
-    background:#001a47;
-    color:#fff;
-}
-
-.btn-cancel{
-    background:#dc3545;
-    color:#fff;
-}
-.btn-receipt{
-    background:#001a47;
-    color:#fff;
-}
-
-.receipt-modal{
-    display:none;
-    position:fixed;
-    top:0;
-    left:0;
-    width:100%;
-    height:100%;
-    background:rgba(0,0,0,0.6);
-    justify-content:center;
-    align-items:center;
-    z-index:999;
-}
-
-.receipt-content{
-    background:#fff;
-    width:95%;
-    max-width:420px;
-    border-radius:18px;
-    padding:20px;
-    position:relative;
-    animation:fadeIn .25s ease;
-    box-shadow:0 10px 25px rgba(0,0,0,0.15);
-}
-
-@keyframes fadeIn{
-    from{transform:scale(.95);opacity:0;}
-    to{transform:scale(1);opacity:1;}
-}
-
-.close-receipt{
-    position:absolute;
-    right:15px;
-    top:10px;
-    font-size:20px;
-    cursor:pointer;
-    color:#999;
-}
-
-.receipt-header{
-    text-align:center;
-    margin-bottom:15px;
-}
-
-.receipt-header h3{
-    margin:0;
-    color:#001a47;
-}
-
-.receipt-ordercode{
-    background:#e6eef9;
-    color:#001a47;
-    font-weight:bold;
-    font-size:16px;
-    padding:8px;
-    border-radius:8px;
-    text-align:center;
-    margin:10px 0;
-    letter-spacing:1px;
-}
-
-.receipt-section{
-    font-size:13px;
-    margin-bottom:5px;
-}
-
-.receipt-items{
-    margin-top:12px;
-    border-top:1px dashed #ccc;
-    padding-top:10px;
-}
-
-.receipt-item{
-    display:flex;
-    gap:10px;
-    margin-bottom:10px;
-    align-items:center;
-}
-
-.receipt-item img{
-    width:45px;
-    height:45px;
-    border-radius:8px;
-    object-fit:cover;
-}
-
-.receipt-item-info{
-    flex:1;
-    font-size:13px;
-}
-
-.receipt-total{
-    border-top:1px solid #eee;
-    margin-top:10px;
-    padding-top:8px;
-    font-weight:bold;
-    text-align:right;
-    font-size:14px;
-    color:#001a47;
-}
-
-/* ===== MOBILE ===== */
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f4f6f9}
+.page-wrapper{min-height:100vh;padding-bottom:90px}
+.container{width:100%;padding:15px}
+@media(min-width:768px){.container{max-width:1500px;margin:0 auto;padding:25px}}
+h2{margin:0 0 15px;color:#001a47}
+.tabs{display:flex;gap:10px;margin-bottom:20px;overflow-x:auto}
+.tabs::-webkit-scrollbar{display:none}
+.tab{padding:6px 14px;border-radius:20px;background:#e9ecef;text-decoration:none;color:#001a47;font-size:13px;white-space:nowrap}
+.tab.active{background:#001a47;color:#fff}
+.order-box{background:#fff;border-radius:14px;padding:15px;margin-bottom:15px;box-shadow:0 3px 10px rgba(0,0,0,.05)}
+.order-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:5px}
+.status{padding:4px 10px;border-radius:15px;font-size:11px;font-weight:600}
+.pending{background:#fff3cd;color:#856404}
+.for-payment{background:#ffe8cc;color:#9a4d00}
+.completed{background:#d4edda;color:#155724}
+.cancelled{background:#f8d7da;color:#721c24}
+.refund{background:#f3e8ff;color:#6b21a8}
+.no-orders{text-align:center;color:#9ca3af;font-size:15px;padding:40px 0}
+.order-item{display:flex;gap:10px;padding:10px 0;border-top:1px solid #eee}
+.order-item img{width:60px;height:60px;border-radius:8px;object-fit:cover}
+.item-info{flex:1;font-size:13px}
+.order-total{font-weight:700;margin-top:8px;text-align:right;font-size:14px}
+.actions{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.left-actions,.right-actions{display:flex;gap:8px;flex-wrap:wrap}
+.right-actions form{margin:0}
+.btn{padding:6px 12px;border:none;border-radius:6px;font-size:12px;cursor:pointer}
+.btn-receipt{background:#001a47;color:#fff}
+.btn-cancel{background:#dc3545;color:#fff}
+.payment-note{margin-top:10px;padding:10px 12px;border-radius:10px;background:#f8fafc;color:#334155;font-size:13px}
+.receipt-modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);justify-content:center;align-items:center;z-index:999}
+.receipt-content{background:#fff;width:95%;max-width:420px;border-radius:18px;padding:20px;position:relative;animation:fadeIn .25s ease;box-shadow:0 10px 25px rgba(0,0,0,.15)}
+@keyframes fadeIn{from{transform:scale(.95);opacity:0}to{transform:scale(1);opacity:1}}
+.close-receipt{position:absolute;right:15px;top:10px;font-size:20px;cursor:pointer;color:#999}
+.receipt-header{text-align:center;margin-bottom:15px}
+.receipt-header h3{margin:0;color:#001a47}
+.receipt-ordercode{background:#e6eef9;color:#001a47;font-weight:700;font-size:16px;padding:8px;border-radius:8px;text-align:center;margin:10px 0;letter-spacing:1px}
+.receipt-section{font-size:13px;margin-bottom:5px}
+.receipt-items{margin-top:12px;border-top:1px dashed #ccc;padding-top:10px}
+.receipt-item{display:flex;gap:10px;margin-bottom:10px;align-items:center}
+.receipt-item img{width:45px;height:45px;border-radius:8px;object-fit:cover}
+.receipt-item-info{flex:1;font-size:13px}
+.receipt-total{border-top:1px solid #eee;margin-top:10px;padding-top:8px;font-weight:700;text-align:right;font-size:14px;color:#001a47}
 @media(max-width:768px){
-
-    .order-header{
-        flex-direction:column;
-        align-items:flex-start;
-    }
-
-    .order-total,
-    .actions{
-        text-align:left;
-    }
-
-    .order-item{
-        align-items:flex-start;
-    }
+    .order-header{flex-direction:column;align-items:flex-start}
+    .order-total,.actions{text-align:left}
+    .order-item{align-items:flex-start}
 }
-
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
 </head>
@@ -387,91 +131,79 @@ h2{
 
 <div class="tabs">
 <?php foreach($allowedTabs as $tab): ?>
-<a class="tab <?= $currentTab === $tab ? 'active' : '' ?>"
-   href="orders.php?tab=<?= $tab ?>">
-   <?= $tab ?>
+<a class="tab <?= $currentTab === $tab ? 'active' : '' ?>" href="orders.php?tab=<?= urlencode($tab) ?>">
+    <?= htmlspecialchars($tab) ?>
 </a>
 <?php endforeach; ?>
 </div>
 
 <?php if(empty($grouped)): ?>
-<div class="no-orders">
-    No orders found.
-</div>
+<div class="no-orders">No orders found.</div>
 <?php endif; ?>
 
 <?php foreach($grouped as $code => $items): ?>
 <div class="order-box">
-
-<div class="order-header">
-    <div><strong>Order Code:</strong> <?= $code ?></div>
-    <?php $status = $items[0]['status']; ?>
-    <span class="status <?= strtolower($status) ?>">
-        <?= $status ?>
-    </span>
-</div>
-
-<?php 
-$total = 0;
-foreach($items as $item):
-$subtotal = $item['price'] * $item['quantity'];
-$total += $subtotal;
-?>
-
-<div class="order-item">
-    <img src="uploads/product/<?= $item['image'] ?>">
-    <div class="item-info">
-        <div><strong><?= $item['name'] ?></strong></div>
-        <div>Qty: <?= $item['quantity'] ?></div>
-        <div>₱<?= number_format($item['price'],2) ?></div>
-        <div>Business: <?= $item['business_name'] ?></div>
+    <div class="order-header">
+        <div><strong>Order Code:</strong> <?= htmlspecialchars($code) ?></div>
+        <?php $status = $items[0]['status']; ?>
+        <?php $statusClass = strtolower(str_replace(' ', '-', $status)); ?>
+        <span class="status <?= htmlspecialchars($statusClass) ?>"><?= htmlspecialchars($status) ?></span>
     </div>
-</div>
 
-<?php endforeach; ?>
+    <?php $total = 0; ?>
+    <?php foreach($items as $item): ?>
+        <?php $subtotal = (float) $item['price'] * (int) $item['quantity']; ?>
+        <?php $total += $subtotal; ?>
+        <div class="order-item">
+            <img src="uploads/product/<?= htmlspecialchars($item['image']) ?>">
+            <div class="item-info">
+                <div><strong><?= htmlspecialchars($item['name']) ?></strong></div>
+                <div>Qty: <?= (int) $item['quantity'] ?></div>
+                <div>&#8369;<?= number_format((float) $item['price'], 2) ?></div>
+                <div>Business: <?= htmlspecialchars($item['business_name']) ?></div>
+            </div>
+        </div>
+    <?php endforeach; ?>
 
-<div class="order-total">
-Total: ₱<?= number_format($total,2) ?>
-</div>
+    <div class="order-total">Total: &#8369;<?= number_format($total, 2) ?></div>
 
-<div class="actions">
-
-    <!-- LEFT SIDE -->
-    <div class="left-actions">
-        <?php if($status === "Confirmed" || $status === "Completed"): ?>
-        <button type="button" 
-                class="btn btn-receipt"
-                onclick="openReceiptModal('<?= $code ?>')">
-            Show Pickup Receipt
-        </button>
+    <div class="payment-note">
+        <?php if(!empty($items[0]['payment_method'])): ?>
+            Payment: <?= htmlspecialchars($items[0]['payment_method']) ?>
+            <?php if($items[0]['amount_paid'] !== null): ?>
+                | Paid: &#8369;<?= number_format((float) $items[0]['amount_paid'], 2) ?>
+            <?php endif; ?>
+            <?php if($items[0]['change_amount'] !== null && (float) $items[0]['change_amount'] > 0): ?>
+                | Change: &#8369;<?= number_format((float) $items[0]['change_amount'], 2) ?>
+            <?php endif; ?>
+            <?php if($status === "Refund"): ?>
+                | Refunded
+            <?php endif; ?>
+        <?php elseif($status === "For Payment"): ?>
+            Payment: Waiting for business owner confirmation of payment.
+        <?php else: ?>
+            Payment: Not yet recorded.
         <?php endif; ?>
     </div>
 
-    <!-- RIGHT SIDE -->
-    <div class="right-actions">
-
-        <?php if($status === "Pending"): ?>
-        <form method="POST">
-            <input type="hidden" name="order_code" value="<?= $code ?>">
-            <button class="btn btn-cancel" name="cancel">
-                Cancel Order
+    <div class="actions">
+        <div class="left-actions">
+            <?php if($status === "For Payment" || $status === "Completed" || $status === "Refund"): ?>
+            <button type="button" class="btn btn-receipt" onclick='openReceiptModal(<?= json_encode($code) ?>)'>
+                Show Pickup Receipt
             </button>
-        </form>
-        <?php endif; ?>
+            <?php endif; ?>
+        </div>
 
-        <?php if($status === "Confirmed"): ?>
-        <form method="POST">
-            <input type="hidden" name="order_code" value="<?= $code ?>">
-            <button class="btn btn-receive" name="receive">
-                Order Received
-            </button>
-        </form>
-        <?php endif; ?>
-
+        <div class="right-actions">
+            <?php if($status === "Pending"): ?>
+            <form method="POST">
+                <input type="hidden" name="order_code" value="<?= htmlspecialchars($code) ?>">
+                <button class="btn btn-cancel" name="cancel">Cancel Order</button>
+            </form>
+            <?php endif; ?>
+        </div>
     </div>
-
-</div>
-
 </div>
 <?php endforeach; ?>
 
@@ -480,7 +212,6 @@ Total: ₱<?= number_format($total,2) ?>
 
 <?php include 'bottom_nav.php'; ?>
 
-<!-- RECEIPT MODAL -->
 <div id="receiptModal" class="receipt-modal">
     <div class="receipt-content">
         <span class="close-receipt" onclick="closeReceiptModal()">&times;</span>
@@ -489,53 +220,39 @@ Total: ₱<?= number_format($total,2) ?>
 </div>
 
 <script>
-const ordersData = <?= json_encode($grouped); ?>;
+const ordersData = <?= json_encode($grouped, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+const consumerDisplayName = <?= json_encode(trim(($fname ?? '') . ' ' . ($lname ?? '')) !== '' ? trim(($fname ?? '') . ' ' . ($lname ?? '')) : ($username ?? 'Customer')) ?>;
 
 function openReceiptModal(orderCode){
-
     const items = ordersData[orderCode];
-    if(!items) return;
+    if(!items || !items.length) return;
 
     let total = 0;
-    let status = items[0].status;
-
+    const status = items[0].status;
+    const paymentMethod = items[0].payment_method || '';
+    const amountPaid = items[0].amount_paid !== null ? parseFloat(items[0].amount_paid) : null;
+    const changeAmount = items[0].change_amount !== null ? parseFloat(items[0].change_amount) : null;
     let statusColor = "#6c757d";
 
-    if(status === "Confirmed") statusColor = "#004085";
+    if(status === "For Payment") statusColor = "#9a4d00";
     if(status === "Completed") statusColor = "#155724";
+    if(status === "Refund") statusColor = "#6b21a8";
 
     let html = `
         <div class="receipt-header">
             <h3>Pickup Receipt</h3>
         </div>
-
-        <div class="receipt-ordercode">
-            ORDER CODE: ${orderCode}
-        </div>
-
-        <div style="
-            text-align:center;
-            margin-bottom:10px;
-            font-weight:bold;
-            color:${statusColor};
-        ">
+        <div class="receipt-ordercode">ORDER CODE: ${orderCode}</div>
+        <div style="text-align:center;margin-bottom:10px;font-weight:bold;color:${statusColor};">
             Status: ${status}
         </div>
-
-        <div class="receipt-section">
-            <strong>Business:</strong> ${items[0].business_name}
-        </div>
-
-        <div class="receipt-section">
-            <strong>Customer:</strong> <?= $_SESSION['username'] ?? '' ?>
-        </div>
-
+        <div class="receipt-section"><strong>Business:</strong> ${items[0].business_name}</div>
+        <div class="receipt-section"><strong>Customer:</strong> ${consumerDisplayName}</div>
         <div class="receipt-items">
     `;
 
-    items.forEach(item => {
-
-        let subtotal = item.price * item.quantity;
+    items.forEach((item) => {
+        const subtotal = parseFloat(item.price) * parseInt(item.quantity, 10);
         total += subtotal;
 
         html += `
@@ -544,17 +261,28 @@ function openReceiptModal(orderCode){
                 <div class="receipt-item-info">
                     <div><strong>${item.name}</strong></div>
                     <div>Qty: ${item.quantity}</div>
-                    <div>₱${parseFloat(subtotal).toFixed(2)}</div>
+                    <div>&#8369;${subtotal.toFixed(2)}</div>
                 </div>
             </div>
         `;
     });
 
+    if(paymentMethod){
+        html += `
+            <div class="receipt-section"><strong>Payment Method:</strong> ${paymentMethod}</div>
+            <div class="receipt-section"><strong>Amount Paid:</strong> &#8369;${(amountPaid !== null ? amountPaid : total).toFixed(2)}</div>
+            ${changeAmount !== null && changeAmount > 0 ? `<div class="receipt-section"><strong>Change:</strong> &#8369;${changeAmount.toFixed(2)}</div>` : ''}
+            ${status === "Refund" ? `<div class="receipt-section"><strong>Refund Status:</strong> Refunded</div>` : ''}
+        `;
+    }else if(status === "For Payment"){
+        html += `
+            <div class="receipt-section"><strong>Payment:</strong> Awaiting payment.</div>
+        `;
+    }
+
     html += `
         </div>
-        <div class="receipt-total">
-            Total: ₱${parseFloat(total).toFixed(2)}
-        </div>
+        <div class="receipt-total">Total: &#8369;${total.toFixed(2)}</div>
     `;
 
     document.getElementById("receiptBody").innerHTML = html;
