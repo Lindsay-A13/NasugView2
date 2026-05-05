@@ -42,11 +42,41 @@ if($_SESSION['account_type'] !== "business_owner"){
 
 $owner_id = $_SESSION['user_id'];
 
+/* LOAD CATEGORIES */
+$categories = [];
+$category_stmt = $conn->prepare("
+    SELECT category_id, category_name
+    FROM categories
+    ORDER BY category_name ASC
+");
+
+if($category_stmt){
+    $category_stmt->execute();
+    $category_result = $category_stmt->get_result();
+
+    while($category = $category_result->fetch_assoc()){
+        $categories[] = $category;
+    }
+
+    $category_stmt->close();
+}
+
 /* LOAD BUSINESS DATA */
 $stmt = $conn->prepare("
-    SELECT business_name, description, phone, business_photo, address, latitude, longitude
-    FROM business_owner
-    WHERE b_id = ?
+    SELECT
+        b.business_name,
+        b.description,
+        b.phone,
+        b.business_photo,
+        b.address,
+        b.latitude,
+        b.longitude,
+        b.category_id,
+        c.category_name
+    FROM business_owner b
+    LEFT JOIN categories c
+        ON b.category_id = c.category_id
+    WHERE b.b_id = ?
 ");
 $stmt->bind_param("i", $owner_id);
 $stmt->execute();
@@ -61,8 +91,17 @@ if(isset($_POST['save'])){
     $description   = trim($_POST['description']);
     $phone         = trim($_POST['phone']);
     $address       = trim($_POST['address']);
+    $category_id   = isset($_POST['category_id']) ? (int) $_POST['category_id'] : 0;
     $latitude      = trim($_POST['latitude'] ?? '');
     $longitude     = trim($_POST['longitude'] ?? '');
+
+    $valid_category_ids = array_map(static function(array $category): int {
+        return (int) $category['category_id'];
+    }, $categories);
+
+    if($category_id > 0 && !in_array($category_id, $valid_category_ids, true)){
+        $category_id = 0;
+    }
 
     $latitude = $latitude !== '' ? (string) ((float) $latitude) : '';
     $longitude = $longitude !== '' ? (string) ((float) $longitude) : '';
@@ -77,6 +116,7 @@ if(isset($_POST['save'])){
     $update = $conn->prepare("
         UPDATE business_owner
         SET business_name=?, description=?, phone=?, address=?,
+            category_id = NULLIF(?, 0),
             latitude=NULLIF(?, ''),
             longitude=NULLIF(?, ''),
             business_photo=?
@@ -84,11 +124,12 @@ if(isset($_POST['save'])){
     ");
 
     $update->bind_param(
-        "sssssssi",
+        "ssssisssi",
         $business_name,
         $description,
         $phone,
         $address,
+        $category_id,
         $latitude,
         $longitude,
         $cover_name,
@@ -263,6 +304,7 @@ body{margin:0;font-family:Arial;background:#ffff;}
 .form-group{margin-bottom:20px;}
 
 .modal input,
+.modal select,
 .modal textarea{
     width:100%;
     padding:14px;
@@ -398,6 +440,11 @@ if(!empty($data['business_photo'])){
                 <?php echo htmlspecialchars($data['phone'] ?? 'No phone'); ?>
             </div>
 
+            <div class="info">
+                <i class="fa fa-layer-group"></i>
+                <?php echo htmlspecialchars($data['category_name'] ?? 'No category selected'); ?>
+            </div>
+
             <div class="description">
                 <?php echo htmlspecialchars($data['description'] ?? 'No description yet.'); ?>
             </div>
@@ -517,6 +564,18 @@ if(!empty($data['business_photo'])){
                 <input type="text" name="address"
                        value="<?php echo htmlspecialchars($data['address'] ?? ''); ?>"
                        placeholder="Address">
+            </div>
+
+            <div class="form-group">
+                <select name="category_id">
+                    <option value="">Select Business Category</option>
+                    <?php foreach($categories as $category): ?>
+                        <option value="<?php echo (int) $category['category_id']; ?>"
+                            <?php echo (int) ($data['category_id'] ?? 0) === (int) $category['category_id'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($category['category_name']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
             </div>
 
             <div class="form-group">

@@ -224,6 +224,7 @@ body{
     margin:30px auto;
     background:#fff;
     padding:25px;
+    padding-bottom:110px;
     border-radius:12px;
     box-shadow:0 4px 14px rgba(0,0,0,0.06);
 }
@@ -364,7 +365,7 @@ button{
         max-width:100%;
         border-radius:0;
         box-shadow:none;
-        padding:16px;
+        padding:16px 16px 110px;
     }
     input,select,textarea{
         font-size:16px;
@@ -586,5 +587,7 @@ let cityId = this.options[this.selectedIndex].dataset.id;    if(!cityId) return;
 
 });
 </script>
+
+<?php include 'bottom_nav.php'; ?>
 </body>
 </html>

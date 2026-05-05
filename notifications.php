@@ -85,33 +85,56 @@ function groupLabel($date)
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <link rel="stylesheet" href="assets/css/responsive.css"/>
 <style>
+*,*::before,*::after{box-sizing:border-box;}
 body{margin:0;font-family:Arial;background:#f5f7fb;}
 .container{max-width:1100px;margin:auto;padding:18px 20px 90px;}
-.header-row{display:flex;justify-content:space-between;align-items:center;gap:12px;}
+.header-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:nowrap;}
+.header-main{display:flex;align-items:center;gap:12px;min-width:0;flex:1;}
+.page-back-btn{width:42px;height:42px;border:none;border-radius:999px;background:rgba(255,255,255,0.96);color:#001a47;box-shadow:0 6px 18px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:18px;flex:0 0 42px;}
 .page-title{font-size:22px;font-weight:bold;color:#001a47;}
-.header-actions{display:flex;align-items:center;gap:10px;}
+.header-actions{display:flex;align-items:center;gap:10px;min-width:0;}
 .header-action-link{text-decoration:none;}
 .read-btn{font-size:13px;text-decoration:none;color:#001a47;font-weight:600;}
 .icon-btn{position:relative;background:rgba(0,26,71,0.08);padding:10px;border-radius:50%;color:#001a47;}
 .badge{position:absolute;top:-4px;right:-4px;background:#dc3545;color:#fff;font-size:11px;padding:2px 6px;border-radius:50%;}
 .group-label{font-weight:bold;margin:22px 0 10px;color:#344054;font-size:13px;letter-spacing:.6px;}
-.notif-card{display:block;background:#fff;padding:14px 15px;border-radius:12px;margin-bottom:10px;text-decoration:none;color:inherit;box-shadow:0 3px 12px rgba(0,0,0,.05);}
+.notif-card{display:block;background:#fff;padding:14px 16px;border-radius:12px;margin-bottom:10px;text-decoration:none;color:inherit;box-shadow:0 3px 12px rgba(0,0,0,.05);overflow:hidden;}
 .notif-card.unread{background:#eef4ff;border:1px solid #b7cdf7;}
 .notif-title{font-weight:700;color:#001a47;margin-bottom:6px;}
-.notif-message{color:#344054;line-height:1.45;}
-.notif-footer{display:flex;justify-content:space-between;font-size:12px;color:#667085;margin-top:10px;}
+.notif-message{color:#344054;line-height:1.45;word-break:break-word;}
+.notif-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:#667085;margin-top:10px;}
+.notif-footer span:last-child{margin-left:auto;text-align:right;}
 .empty-state{padding:40px 0;text-align:center;color:#667085;}
 .top-icon{position:relative;background:rgba(0,26,71,0.08);padding:10px;border-radius:50%;color:#001a47;font-size:18px;text-decoration:none;display:flex;align-items:center;justify-content:center;}
 .top-icon .badge{right:-5px;}
+@media (max-width:768px){
+    .container{width:100%;padding-top:16px !important;padding-left:16px !important;padding-right:16px !important;}
+    .header-row{align-items:center;}
+    .header-main{gap:10px;}
+    .page-title{font-size:18px;line-height:1.2;word-break:break-word;}
+    .header-actions{margin-left:0;justify-self:end;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+    .read-btn{display:none;}
+    .top-icon{width:40px;height:40px;flex:0 0 40px;}
+    .notif-card{padding:14px;}
+    .notif-footer{gap:8px;}
+}
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
 </head>
 <body>
-<?php include 'mobile_back_button.php'; ?>
-
 <div class="container">
     <div class="header-row">
-        <div class="page-title">Notifications</div>
+        <div class="header-main">
+            <a
+                href="home.php"
+                class="page-back-btn"
+                aria-label="Go back"
+                onclick="if(window.history.length > 1){ window.history.back(); return false; }"
+            >
+                <i class="fa fa-arrow-left"></i>
+            </a>
+            <div class="page-title">Notifications</div>
+        </div>
 
         <div class="header-actions">
             <?php if ($account_type === "consumer"): ?>

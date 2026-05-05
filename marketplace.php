@@ -250,7 +250,7 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
   .topbar{padding:14px 0 8px}
   .category-bar,.star-bar,.sort-row,.marketplace-grid,.business-grid{padding-left:0 !important;padding-right:0 !important}
   .section-title{margin-left:0 !important;margin-right:0 !important}
-  .sort-row{justify-content:center}
+  .sort-row{justify-content:flex-end}
   .star-bar{justify-content:center}
   .marketplace-grid,.business-grid{grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:14px}
   .marketplace-card img,.product img,.business img{height:156px !important;aspect-ratio:auto !important}
@@ -288,7 +288,7 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 <!-- CATEGORY BAR -->
 <div class="category-bar">
   <button class="category-btn active" data-category="all">All</button>
-  <button class="category-btn" data-category="nearby">Nearby</button>
+  <button class="category-btn" data-category-toggle="nearby">Nearby</button>
   <?php while($cat=$categories->fetch_assoc()): ?>
     <?php if(strtolower(trim($cat['category_name'])) === 'nearby') continue; ?>
     <button class="category-btn" data-category="<?= $cat['category_id']; ?>">
@@ -494,6 +494,7 @@ if(priceSort && priceSort.options.length >= 3){
 
 let activeCategory = "all";
 let activeRating = null;
+let nearbyOnly = false;
 let userCoords = null;
 const geocodeCacheKey = "marketplaceGeocodeCache";
 let geocodeCache = {};
@@ -527,6 +528,25 @@ function setDistanceLabel(card, text){
   if(label){
     label.textContent = text;
   }
+}
+
+function updateCategoryButtonState(){
+  categoryBtns.forEach(btn => {
+    const category = btn.dataset.category || "";
+    const toggle = btn.dataset.categoryToggle || "";
+
+    if(toggle === "nearby"){
+      btn.classList.toggle("active", nearbyOnly);
+      return;
+    }
+
+    if(category === "all"){
+      btn.classList.toggle("active", activeCategory === "all");
+      return;
+    }
+
+    btn.classList.toggle("active", activeCategory === category);
+  });
 }
 
 function rememberOriginalOrder(){
@@ -739,12 +759,11 @@ function applyFilters(){
     }
 
     if(activeCategory !== "all" &&
-       activeCategory !== "nearby" &&
        item.dataset.category !== activeCategory){
         show = false;
     }
 
-    if(activeCategory === "nearby" && !item.dataset.distance){
+    if(nearbyOnly && !item.dataset.distance){
       show = false;
     }
 
@@ -781,12 +800,11 @@ function applyFilters(){
     }
 
     if(activeCategory !== "all" &&
-       activeCategory !== "nearby" &&
        item.dataset.category !== activeCategory){
         show = false;
     }
 
-    if(activeCategory === "nearby" && !item.dataset.distance){
+    if(nearbyOnly && !item.dataset.distance){
       show = false;
     }
 
@@ -816,30 +834,32 @@ searchInput.addEventListener("keyup", applyFilters);
 
 categoryBtns.forEach(btn => {
   btn.addEventListener("click", function(){
-    const clickedCategory = this.dataset.category;
+    const clickedCategory = this.dataset.category || "";
+    const clickedToggle = this.dataset.categoryToggle || "";
 
-    if(clickedCategory === "nearby" && activeCategory === "nearby"){
-      activeCategory = "all";
-      categoryBtns.forEach(b => b.classList.remove("active"));
-      document.querySelector('.category-btn[data-category="all"]').classList.add("active");
-      restoreDefaultOrder();
+    if(clickedToggle === "nearby"){
+      nearbyOnly = !nearbyOnly;
+
+      if(nearbyOnly){
+        sortNearbyCards();
+      } else if(activeCategory === "all"){
+        restoreDefaultOrder();
+      }
+
+      updateCategoryButtonState();
       applyFilters();
       return;
     }
 
-    const wasNearby = activeCategory === "nearby";
+    activeCategory = clickedCategory === "all" ? "all" : clickedCategory;
 
-    categoryBtns.forEach(b => b.classList.remove("active"));
-    this.classList.add("active");
-
-    activeCategory = clickedCategory;
-
-    if(activeCategory === "nearby"){
+    if(nearbyOnly){
       sortNearbyCards();
-    } else if(wasNearby){
+    } else {
       restoreDefaultOrder();
     }
 
+    updateCategoryButtonState();
     applyFilters();
 
   });
@@ -893,6 +913,7 @@ function sortByPrice(){
 }
 
 rememberOriginalOrder();
+updateCategoryButtonState();
 loadNearbyDistances();
 </script>
 

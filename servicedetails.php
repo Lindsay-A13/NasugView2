@@ -101,7 +101,7 @@ $mapLink = "https://www.google.com/maps/search/?api=1&query=" . urlencode($servi
 
 <style>
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f172a;}
-.header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:#fff;z-index:1000;}
+.header{display:flex;justify-content:flex-end;align-items:center;padding:12px 20px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:#fff;z-index:1000;}
 .logo img{height:38px;}
 .cart-btn,.cart-btn:visited{position:relative;background:rgba(0,26,71,0.08);padding:8px;border-radius:50%;color:#001a47;font-size:18px;text-decoration:none;}
 .cart-badge{position:absolute;top:-4px;right:-4px;background:#e74c3c;color:#fff;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:50%;}
@@ -139,6 +139,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 @media (max-width:768px){
   .container{padding:16px;padding-bottom:120px;}
   .service-card{grid-template-columns:1fr;gap:20px;padding:18px;}
+  .service-card,.info-grid{width:min(100%,720px);margin-left:auto;margin-right:auto;}
   .service-image{min-height:240px;}
   .service-title{font-size:26px;}
   .info-grid{grid-template-columns:1fr;}

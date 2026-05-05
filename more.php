@@ -37,6 +37,10 @@ if(isset($_GET['logout'])){
 
 <style>
 
+* {
+    box-sizing: border-box;
+}
+
 html, body {
     margin: 0;
     padding: 0;
@@ -50,7 +54,7 @@ body {
 }
 
 .container {
-    max-width: 1100px;
+    width: min(100%, 1100px);
     margin: auto;
     padding: 20px 20px 100px;
 }
@@ -62,7 +66,7 @@ body {
     margin-bottom: 20px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
 }
 
 .page-title img{
@@ -111,6 +115,8 @@ body {
     align-items: center;
     justify-content: center;
     gap: 10px;
+    width: 100%;
+    max-width: 100%;
     background: #001a47;
     color: #fff;
     padding: 14px;
@@ -196,6 +202,12 @@ body {
       padding: 2px 6px;
       border-radius: 50%;
     }
+
+@media (max-width:768px){
+    .container{
+        padding-top:16px !important;
+    }
+}
 
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
