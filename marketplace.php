@@ -202,8 +202,9 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 
 .category-bar{padding:10px 20px;display:flex;gap:10px;overflow-x:auto}
 .category-bar::-webkit-scrollbar{display:none}
-.category-btn{flex:0 0 auto;padding:10px 18px;border-radius:999px;border:1px solid #ddd;background:#f5f5f5;cursor:pointer;font-size:14px;white-space:nowrap;transition:.2s;color:#000}
-.category-btn.active{background:#001a47;color:#fff;border-color:#001a47}
+.category-btn,.nearby-btn{flex:0 0 auto;padding:10px 18px;border-radius:999px;border:1px solid #ddd;background:#f5f5f5;cursor:pointer;font-size:14px;white-space:nowrap;transition:.2s;color:#000}
+.category-btn.active,.nearby-btn.active{background:#001a47;color:#fff;border-color:#001a47}
+.nearby-btn{display:inline-flex;align-items:center;gap:7px}
 
 .star-bar{padding:4px 20px 12px;display:flex;gap:10px;overflow-x:auto}
 .star-bar::-webkit-scrollbar{display:none}
@@ -212,8 +213,10 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 .star-btn i{color:#001a47}
 .star-btn.active i{color:#fff}
 
-.sort-row{padding:0 20px 12px;display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.sort-row{padding:0 20px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.sort-controls{display:flex;align-items:center;gap:8px;margin-left:auto}
 .sort-row span{font-size:13px;color:#555}
+.nearby-btn span,.nearby-btn i{color:inherit}
 .sort-row select{padding:9px 12px;border-radius:12px;border:1px solid #ccc;background:#fff;color:#000}
 
 .section-block{margin-top:8px}
@@ -250,7 +253,8 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
   .topbar{padding:14px 0 8px}
   .category-bar,.star-bar,.sort-row,.marketplace-grid,.business-grid{padding-left:0 !important;padding-right:0 !important}
   .section-title{margin-left:0 !important;margin-right:0 !important}
-  .sort-row{justify-content:flex-end}
+  .sort-row{justify-content:space-between}
+  .sort-controls{margin-left:0}
   .star-bar{justify-content:center}
   .marketplace-grid,.business-grid{grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:14px}
   .marketplace-card img,.product img,.business img{height:156px !important;aspect-ratio:auto !important}
@@ -288,7 +292,6 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 <!-- CATEGORY BAR -->
 <div class="category-bar">
   <button class="category-btn active" data-category="all">All</button>
-  <button class="category-btn" data-category-toggle="nearby">Nearby</button>
   <?php while($cat=$categories->fetch_assoc()): ?>
     <?php if(strtolower(trim($cat['category_name'])) === 'nearby') continue; ?>
     <button class="category-btn" data-category="<?= $cat['category_id']; ?>">
@@ -309,12 +312,18 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 </div>
 
 <div class="sort-row">
-  <span>Sort:</span>
-  <select id="priceSort">
-    <option value="">Price</option>
-    <option value="low">Low → High</option>
-    <option value="high">High → Low</option>
-  </select>
+  <button type="button" class="nearby-btn" id="nearbyFilter">
+    <i class="fa fa-location-dot"></i>
+    <span>Nearby</span>
+  </button>
+  <div class="sort-controls">
+    <span>Sort:</span>
+    <select id="priceSort">
+      <option value="">Price</option>
+      <option value="low">Low to High</option>
+      <option value="high">High to Low</option>
+    </select>
+  </div>
 </div>
 
 <!-- PRODUCTS -->
@@ -484,6 +493,7 @@ $img = !empty($biz['business_photo'])
 <script>
 const searchInput = document.getElementById('searchInput');
 const categoryBtns = document.querySelectorAll('.category-btn');
+const nearbyFilter = document.getElementById('nearbyFilter');
 const starBtns = document.querySelectorAll('.star-btn');
 const priceSort = document.getElementById('priceSort');
 
@@ -533,12 +543,6 @@ function setDistanceLabel(card, text){
 function updateCategoryButtonState(){
   categoryBtns.forEach(btn => {
     const category = btn.dataset.category || "";
-    const toggle = btn.dataset.categoryToggle || "";
-
-    if(toggle === "nearby"){
-      btn.classList.toggle("active", nearbyOnly);
-      return;
-    }
 
     if(category === "all"){
       btn.classList.toggle("active", activeCategory === "all");
@@ -547,6 +551,10 @@ function updateCategoryButtonState(){
 
     btn.classList.toggle("active", activeCategory === category);
   });
+
+  if(nearbyFilter){
+    nearbyFilter.classList.toggle("active", nearbyOnly);
+  }
 }
 
 function rememberOriginalOrder(){
@@ -713,7 +721,7 @@ function loadNearbyDistances(){
       updateDistanceState(card, distanceKm);
     }
 
-    if(activeCategory === "nearby"){
+    if(nearbyOnly){
       sortNearbyCards();
     }
 
@@ -835,21 +843,6 @@ searchInput.addEventListener("keyup", applyFilters);
 categoryBtns.forEach(btn => {
   btn.addEventListener("click", function(){
     const clickedCategory = this.dataset.category || "";
-    const clickedToggle = this.dataset.categoryToggle || "";
-
-    if(clickedToggle === "nearby"){
-      nearbyOnly = !nearbyOnly;
-
-      if(nearbyOnly){
-        sortNearbyCards();
-      } else if(activeCategory === "all"){
-        restoreDefaultOrder();
-      }
-
-      updateCategoryButtonState();
-      applyFilters();
-      return;
-    }
 
     activeCategory = clickedCategory === "all" ? "all" : clickedCategory;
 
@@ -864,6 +857,21 @@ categoryBtns.forEach(btn => {
 
   });
 });
+
+if(nearbyFilter){
+  nearbyFilter.addEventListener("click", function(){
+    nearbyOnly = !nearbyOnly;
+
+    if(nearbyOnly){
+      sortNearbyCards();
+    } else if(activeCategory === "all"){
+      restoreDefaultOrder();
+    }
+
+    updateCategoryButtonState();
+    applyFilters();
+  });
+}
 
 starBtns.forEach(btn => {
   btn.addEventListener("click", function(){
