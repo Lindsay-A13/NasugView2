@@ -2,6 +2,7 @@
 require_once "config/session.php";
 require_once "config/db.php";
 require_once "config/notifications_helper.php";
+require_once "config/orders_helper.php";
 
 if(!isset($_SESSION['user_id'])){
     header("Location: login.php");
@@ -10,6 +11,8 @@ if(!isset($_SESSION['user_id'])){
 
 $user_id = $_SESSION['user_id'];
 $account_type = $_SESSION['account_type'];
+
+ensureOrderPaymentSupport($conn);
 
 /* ================= DELETE SINGLE ================= */
 if(isset($_GET['delete'])){
@@ -111,14 +114,15 @@ if($item['type'] === "product" && $item['quantity'] > $item['stock']){
 /* INSERT ORDER ROW */
                 $insert = $conn->prepare("
                     INSERT INTO orders
-                    (order_code, consumer_id, business_id, product_id, quantity, price, order_type, status)
-                    VALUES (?,?,?,?,?,?,?, 'Pending')
+                    (order_code, consumer_id, buyer_account_type, business_id, product_id, quantity, price, order_type, status)
+                    VALUES (?,?,?,?,?,?,?, ?, 'Pending')
                 ");
 
                 $insert->bind_param(
-                    "siiiids",
+                    "sisiiids",
                     $order_code,
                     $user_id,
+                    $account_type,
                     $business_id,
                     $item['product_id'],
                     $item['quantity'],

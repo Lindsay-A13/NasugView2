@@ -3,8 +3,37 @@
 function ensureOrderPaymentSupport(mysqli $conn): void
 {
     ensureOrderStatusValues($conn);
+    ensureOrderBuyerAccountTypeColumn($conn);
     ensureOrderPaymentColumns($conn);
     normalizeLegacyOrderStatuses($conn);
+    backfillOrderBuyerAccountTypes($conn);
+}
+
+function ensureOrderBuyerAccountTypeColumn(mysqli $conn): void
+{
+    $check = $conn->prepare("
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'orders'
+          AND COLUMN_NAME = 'buyer_account_type'
+        LIMIT 1
+    ");
+
+    if (!$check) {
+        return;
+    }
+
+    $check->execute();
+    $exists = $check->get_result()->num_rows > 0;
+    $check->close();
+
+    if (!$exists) {
+        $conn->query("
+            ALTER TABLE orders
+            ADD COLUMN buyer_account_type VARCHAR(20) NULL AFTER consumer_id
+        ");
+    }
 }
 
 function ensureOrderStatusValues(mysqli $conn): void
@@ -98,5 +127,22 @@ function normalizeLegacyOrderStatuses(mysqli $conn): void
         UPDATE orders
         SET status = 'Completed'
         WHERE status = 'Confirmed'
+    ");
+}
+
+function backfillOrderBuyerAccountTypes(mysqli $conn): void
+{
+    $conn->query("
+        UPDATE orders o
+        LEFT JOIN consumers c
+            ON c.c_id = o.consumer_id
+        LEFT JOIN business_owner bo
+            ON bo.b_id = o.consumer_id
+        SET o.buyer_account_type = CASE
+            WHEN c.c_id IS NOT NULL AND bo.b_id IS NULL THEN 'consumer'
+            WHEN c.c_id IS NULL AND bo.b_id IS NOT NULL THEN 'business_owner'
+            ELSE o.buyer_account_type
+        END
+        WHERE o.buyer_account_type IS NULL
     ");
 }

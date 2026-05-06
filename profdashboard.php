@@ -1,6 +1,7 @@
 <?php
 require_once "config/session.php";
 require_once "config/db.php";
+require_once "config/orders_helper.php";
 
 
 /* ================= DASHBOARD PROTECTION ================= */
@@ -13,247 +14,270 @@ if($_SESSION['account_type'] !== "business_owner"){
 /* BUSINESS OWNER ID (IMPORTANT: DO NOT MIX WITH VIEW ID) */
 $business_id = $_SESSION['user_id'];
 
+ensureOrderPaymentSupport($conn);
+
 
 /* ================= FILTER ================= */
 
-$selectedYear  = isset($_GET['year'])  ? (int)$_GET['year']  : date("Y");
-$selectedMonth = isset($_GET['month']) ? (int)$_GET['month'] : date("n");
-
-if($selectedMonth < 1 || $selectedMonth > 12){
-    $selectedMonth = date("n");
+$allowedPeriods = ['day', 'week', 'month', 'year'];
+$period = $_GET['period'] ?? 'day';
+if(!in_array($period, $allowedPeriods, true)){
+    $period = 'day';
 }
 
-
-/* ================= YEARS ================= */
-
-$years=[];
-for($y=2026;$y>=2020;$y--){
-    $years[]=$y;
+$selectedDate = $_GET['date'] ?? date("Y-m-d");
+$dateObj = DateTime::createFromFormat('Y-m-d', $selectedDate);
+if(!$dateObj || $dateObj->format('Y-m-d') !== $selectedDate){
+    $dateObj = new DateTime(date("Y-m-d"));
+    $selectedDate = $dateObj->format('Y-m-d');
 }
 
+$rangeStart = clone $dateObj;
+$rangeEnd = clone $dateObj;
 
-/* ================= MONTHLY SALES ================= */
-
-$monthlySales=array_fill(1,12,0);
-$monthlyFollowers = array_fill(1,12,0);
-
-$stmt=$conn->prepare("
-SELECT MONTH(created_at) month,
-SUM(price*quantity) total
-FROM orders
-WHERE business_id=?
-AND status='Completed'
-AND YEAR(created_at)=?
-GROUP BY MONTH(created_at)
-");
-
-$stmt->bind_param("ii",$business_id,$selectedYear);
-$stmt->execute();
-$res=$stmt->get_result();
-
-while($row=$res->fetch_assoc()){
-    $monthlySales[$row['month']]=$row['total'];
+if($period === 'day'){
+    $rangeEnd->setTime(0, 0, 0);
+    $rangeEnd->modify('+1 day');
+    $rangeStart = clone $rangeEnd;
+    $rangeStart->modify('-6 days');
+}elseif($period === 'week'){
+    $rangeStart->modify('monday this week')->setTime(0, 0, 0);
+    $rangeEnd = clone $rangeStart;
+    $rangeEnd->modify('+7 days');
+}elseif($period === 'month'){
+    $rangeStart->setDate((int)$dateObj->format('Y'), 1, 1)->setTime(0, 0, 0);
+    $rangeEnd = clone $rangeStart;
+    $rangeEnd->modify('+1 year');
+}else{
+    $selectedYearValue = (int)$dateObj->format('Y');
+    $rangeStart->setDate($selectedYearValue - 4, 1, 1)->setTime(0, 0, 0);
+    $rangeEnd = clone $rangeStart;
+    $rangeEnd->modify('+5 years');
 }
 
-/* ================= MONTHLY FOLLOWERS ================= */
-$followerMonthlyStmt = $conn->prepare("
-SELECT MONTH(created_at) month, COUNT(*) total
-FROM business_followers
-WHERE business_id = ?
-AND YEAR(created_at) = ?
-GROUP BY MONTH(created_at)
-");
+$rangeStartSql = $rangeStart->format('Y-m-d H:i:s');
+$rangeEndSql = $rangeEnd->format('Y-m-d H:i:s');
+$rangeLabel = $rangeStart->format('M j, Y');
 
-$followerMonthlyStmt->bind_param("ii", $business_id, $selectedYear);
-$followerMonthlyStmt->execute();
-$resFollowers = $followerMonthlyStmt->get_result();
-
-while($row = $resFollowers->fetch_assoc()){
-    $monthlyFollowers[$row['month']] = $row['total'];
+if($period === 'day'){
+    $rangeLabel = $rangeStart->format('M j') . ' - ' . $dateObj->format('M j, Y');
+}elseif($period === 'week'){
+    $rangeLabel = $rangeStart->format('M j') . ' - ' . $rangeEnd->modify('-1 day')->format('M j, Y');
+    $rangeEnd->modify('+1 day');
+}elseif($period === 'month'){
+    $rangeLabel = $rangeStart->format('Y');
+}elseif($period === 'year'){
+    $rangeLabel = $rangeStart->format('Y') . ' - ' . $rangeEnd->modify('-1 day')->format('Y');
+    $rangeEnd->modify('+1 day');
 }
 
-
-/* ================= DAILY SALES ================= */
-
-$daysInMonth=cal_days_in_month(CAL_GREGORIAN,$selectedMonth,$selectedYear);
-$todayYear = (int) date("Y");
-$todayMonth = (int) date("n");
-$todayDay = (int) date("j");
-
-$dailySales=[];
-$dailyOrders=[];
-$dailyCustomers=[];
-
-for($i=1;$i<=$daysInMonth;$i++){
-    $dailySales[$i]=0;
-    $dailyOrders[$i]=0;
-    $dailyCustomers[$i]=0;
-}
-
-$stmt2=$conn->prepare("
-SELECT 
-DAY(created_at) day,
-SUM(price*quantity) total,
-COUNT(DISTINCT order_code) orders_count,
-COUNT(DISTINCT consumer_id) customers
-FROM orders
-WHERE business_id=?
-AND status='Completed'
-AND YEAR(created_at)=?
-AND MONTH(created_at)=?
-GROUP BY DAY(created_at)
-");
-
-$stmt2->bind_param("iii",$business_id,$selectedYear,$selectedMonth);
-$stmt2->execute();
-$res2=$stmt2->get_result();
-
-while($row=$res2->fetch_assoc()){
-    $d=$row['day'];
-    $dailySales[$d]=$row['total'];
-    $dailyOrders[$d]=$row['orders_count'];
-    $dailyCustomers[$d]=$row['customers'];
-}
-
-
-/* ================= MONTH TOTALS ================= */
+/* ================= SCORE CARDS ================= */
 
 $totalStmt=$conn->prepare("
 SELECT 
-SUM(price*quantity) total_sales,
+COALESCE(SUM(price*quantity),0) total_sales,
 COUNT(DISTINCT order_code) total_orders,
-COUNT(DISTINCT consumer_id) total_customers
+COUNT(DISTINCT CONCAT(COALESCE(buyer_account_type, 'consumer'), ':', consumer_id)) total_buyers,
+COALESCE(SUM(quantity),0) items_sold
 FROM orders
 WHERE business_id=?
 AND status='Completed'
-AND YEAR(created_at)=?
-AND MONTH(created_at)=?
+AND created_at >= ?
+AND created_at < ?
 ");
 
-$totalStmt->bind_param("iii",$business_id,$selectedYear,$selectedMonth);
+$totalStmt->bind_param("iss",$business_id,$rangeStartSql,$rangeEndSql);
 $totalStmt->execute();
 $totals=$totalStmt->get_result()->fetch_assoc();
 
-$totalSales=$totals['total_sales'] ?? 0;
-$totalOrders=$totals['total_orders'] ?? 0;
-$totalCustomers=$totals['total_customers'] ?? 0;
-
-
-/* ================= REAL VISITORS ================= */
+$totalSales=(float)($totals['total_sales'] ?? 0);
+$totalOrders=(int)($totals['total_orders'] ?? 0);
+$totalBuyers=(int)($totals['total_buyers'] ?? 0);
+$itemsSold=(int)($totals['items_sold'] ?? 0);
+$averageOrderValue = $totalOrders > 0 ? $totalSales / $totalOrders : 0;
 
 $visitorStmt=$conn->prepare("
 SELECT COUNT(*) AS visitors
 FROM business_visits
 WHERE business_id=?
-AND YEAR(visited_at)=?
-AND MONTH(visited_at)=?
+AND visited_at >= ?
+AND visited_at < ?
 ");
 
-$visitorStmt->bind_param("iii",$business_id,$selectedYear,$selectedMonth);
+$visitorStmt->bind_param("iss",$business_id,$rangeStartSql,$rangeEndSql);
 $visitorStmt->execute();
+$totalVisitors=(int)($visitorStmt->get_result()->fetch_assoc()['visitors'] ?? 0);
 
-$totalVisitors=$visitorStmt->get_result()->fetch_assoc()['visitors'] ?? 0;
-
-/* ================= FOLLOWERS ================= */
 $followerStmt = $conn->prepare("
 SELECT COUNT(*) AS followers
 FROM business_followers
 WHERE business_id = ?
+AND created_at >= ?
+AND created_at < ?
 ");
 
-$followerStmt->bind_param("i", $business_id);
+$followerStmt->bind_param("iss", $business_id, $rangeStartSql, $rangeEndSql);
 $followerStmt->execute();
+$totalFollowers = (int)($followerStmt->get_result()->fetch_assoc()['followers'] ?? 0);
 
-$totalFollowers = $followerStmt->get_result()->fetch_assoc()['followers'] ?? 0;
+$conversionRate = $totalVisitors > 0 ? ($totalBuyers / $totalVisitors) * 100 : 0;
 
+$genderStmt=$conn->prepare("
+SELECT
+COUNT(DISTINCT CASE WHEN COALESCE(c.gender, bo.gender)='Male' THEN o.consumer_id END) AS men,
+COUNT(DISTINCT CASE WHEN COALESCE(c.gender, bo.gender)='Female' THEN o.consumer_id END) AS women
+FROM orders o
+LEFT JOIN consumers c
+    ON c.c_id = o.consumer_id
+   AND (o.buyer_account_type = 'consumer' OR o.buyer_account_type IS NULL)
+LEFT JOIN business_owner bo
+    ON bo.b_id = o.consumer_id
+   AND o.buyer_account_type = 'business_owner'
+WHERE o.business_id = ?
+AND o.status = 'Completed'
+AND o.created_at >= ?
+AND o.created_at < ?
+");
 
-/* DAILY PRODUCTS */
-$hasDayParam = isset($_GET['day']);
-$selectedDay = $hasDayParam ? (int) $_GET['day'] : null;
+$genderStmt->bind_param("iss",$business_id,$rangeStartSql,$rangeEndSql);
+$genderStmt->execute();
+$genderRes=$genderStmt->get_result()->fetch_assoc();
 
-if($hasDayParam && $selectedDay === 0){
-    $selectedDay = null;
+$totalMen=(int)($genderRes['men'] ?? 0);
+$totalWomen=(int)($genderRes['women'] ?? 0);
+
+/* ================= CHART SERIES ================= */
+
+function emptyTrendSeries(string $period, DateTime $start): array {
+    $labels = [];
+    $keys = [];
+
+    if($period === 'day'){
+        for($i=0;$i<7;$i++){
+            $d = clone $start;
+            $d->modify("+$i day");
+            $labels[] = $d->format("M j");
+            $keys[] = $d->format("Y-m-d");
+        }
+    }elseif($period === 'week'){
+        for($i=0;$i<7;$i++){
+            $d = clone $start;
+            $d->modify("+$i day");
+            $labels[] = $d->format("M j");
+            $keys[] = $d->format("Y-m-d");
+        }
+    }elseif($period === 'month'){
+        for($i=1;$i<=12;$i++){
+            $labels[] = date("M", mktime(0, 0, 0, $i, 1));
+            $keys[] = str_pad((string)$i, 2, "0", STR_PAD_LEFT);
+        }
+    }else{
+        $startYear = (int)$start->format("Y");
+        for($i=0;$i<5;$i++){
+            $year = $startYear + $i;
+            $labels[] = (string)$year;
+            $keys[] = (string)$year;
+        }
+    }
+
+    return [$labels, $keys, array_fill_keys($keys, 0)];
 }
 
-if(!$hasDayParam){
-    if($selectedYear === $todayYear && $selectedMonth === $todayMonth){
-        $selectedDay = $todayDay;
-    }else{
-        $selectedDay = 1;
+[$trendLabels, $trendKeys, $salesTrendMap] = emptyTrendSeries($period, $rangeStart);
+$ordersTrendMap = array_fill_keys($trendKeys, 0);
+$buyersTrendMap = array_fill_keys($trendKeys, 0);
+$visitorsTrendMap = array_fill_keys($trendKeys, 0);
+$followersTrendMap = array_fill_keys($trendKeys, 0);
+
+if($period === 'day'){
+    $ordersGroup = "DATE(created_at)";
+    $visitsGroup = "DATE(visited_at)";
+    $followersGroup = "DATE(created_at)";
+}elseif($period === 'week'){
+    $ordersGroup = "DATE(created_at)";
+    $visitsGroup = "DATE(visited_at)";
+    $followersGroup = "DATE(created_at)";
+}elseif($period === 'month'){
+    $ordersGroup = "DATE_FORMAT(created_at, '%m')";
+    $visitsGroup = "DATE_FORMAT(visited_at, '%m')";
+    $followersGroup = "DATE_FORMAT(created_at, '%m')";
+}else{
+    $ordersGroup = "DATE_FORMAT(created_at, '%Y')";
+    $visitsGroup = "DATE_FORMAT(visited_at, '%Y')";
+    $followersGroup = "DATE_FORMAT(created_at, '%Y')";
+}
+
+$trendStmt=$conn->prepare("
+SELECT $ordersGroup label_key,
+COALESCE(SUM(price*quantity),0) sales,
+COUNT(DISTINCT order_code) orders_count,
+COUNT(DISTINCT CONCAT(COALESCE(buyer_account_type, 'consumer'), ':', consumer_id)) buyers_count
+FROM orders
+WHERE business_id=?
+AND status='Completed'
+AND created_at >= ?
+AND created_at < ?
+GROUP BY label_key
+");
+$trendStmt->bind_param("iss",$business_id,$rangeStartSql,$rangeEndSql);
+$trendStmt->execute();
+$trendRes=$trendStmt->get_result();
+while($row=$trendRes->fetch_assoc()){
+    $key = (string)$row['label_key'];
+    if(isset($salesTrendMap[$key])){
+        $salesTrendMap[$key] = (float)$row['sales'];
+        $ordersTrendMap[$key] = (int)$row['orders_count'];
+        $buyersTrendMap[$key] = (int)$row['buyers_count'];
     }
 }
 
-if($selectedDay !== null && $selectedDay < 1){
-    $selectedDay = 1;
+$visitorTrendStmt=$conn->prepare("
+SELECT $visitsGroup label_key, COUNT(*) total
+FROM business_visits
+WHERE business_id=?
+AND visited_at >= ?
+AND visited_at < ?
+GROUP BY label_key
+");
+$visitorTrendStmt->bind_param("iss",$business_id,$rangeStartSql,$rangeEndSql);
+$visitorTrendStmt->execute();
+$visitorTrendRes=$visitorTrendStmt->get_result();
+while($row=$visitorTrendRes->fetch_assoc()){
+    $key = (string)$row['label_key'];
+    if(isset($visitorsTrendMap[$key])){
+        $visitorsTrendMap[$key] = (int)$row['total'];
+    }
 }
 
-if($selectedDay !== null && $selectedDay > $daysInMonth){
-    $selectedDay = $daysInMonth;
+$followerTrendStmt=$conn->prepare("
+SELECT $followersGroup label_key, COUNT(*) total
+FROM business_followers
+WHERE business_id=?
+AND created_at >= ?
+AND created_at < ?
+GROUP BY label_key
+");
+$followerTrendStmt->bind_param("iss",$business_id,$rangeStartSql,$rangeEndSql);
+$followerTrendStmt->execute();
+$followerTrendRes=$followerTrendStmt->get_result();
+while($row=$followerTrendRes->fetch_assoc()){
+    $key = (string)$row['label_key'];
+    if(isset($followersTrendMap[$key])){
+        $followersTrendMap[$key] = (int)$row['total'];
+    }
 }
+
+$salesTrend = array_values($salesTrendMap);
+$ordersTrend = array_values($ordersTrendMap);
+$buyersTrend = array_values($buyersTrendMap);
+$visitorsTrend = array_values($visitorsTrendMap);
+$followersTrend = array_values($followersTrendMap);
+
+/* ================= PRODUCTS ================= */
 
 $dailyProducts = [];
 $dailyTotalRevenue = 0;
-
-/* DAILY GRAPH DATA (PER HOUR) */
-$hourlySales = array_fill(0,24,0);
-
-if($selectedDay){
-
-    /* PRODUCTS QUERY */
-    $dailyStmt=$conn->prepare("
-    SELECT 
-    i.name AS product_name,
-    SUM(o.quantity) AS total_sold,
-    SUM(o.price * o.quantity) AS revenue
-    FROM orders o
-    JOIN inventory i ON i.id = o.product_id
-    WHERE o.business_id=?
-    AND o.status='Completed'
-    AND YEAR(o.created_at)=?
-    AND MONTH(o.created_at)=?
-    AND DAY(o.created_at)=?
-    GROUP BY o.product_id
-    ORDER BY revenue DESC
-    ");
-
-    $dailyStmt->bind_param("iiii",$business_id,$selectedYear,$selectedMonth,$selectedDay);
-    $dailyStmt->execute();
-    $resDaily=$dailyStmt->get_result();
-
-    while($row=$resDaily->fetch_assoc()){
-        $dailyProducts[]=$row;
-        $dailyTotalRevenue += $row['revenue'];
-    }
-
-    /* HOURLY SALES QUERY */
-    $hourStmt = $conn->prepare("
-    SELECT 
-    HOUR(created_at) hr,
-    SUM(price*quantity) total
-    FROM orders
-    WHERE business_id=?
-    AND status='Completed'
-    AND YEAR(created_at)=?
-    AND MONTH(created_at)=?
-    AND DAY(created_at)=?
-    GROUP BY HOUR(created_at)
-    ");
-
-    $hourStmt->bind_param("iiii",$business_id,$selectedYear,$selectedMonth,$selectedDay);
-    $hourStmt->execute();
-    $resHour = $hourStmt->get_result();
-
-    while($row=$resHour->fetch_assoc()){
-        $hourlySales[(int)$row['hr']] = $row['total'];
-    }
-
-}
-
-
-/* TOP PRODUCTS */
-$topProducts=[];
-
-$topStmt=$conn->prepare("
+$dailyStmt=$conn->prepare("
 SELECT 
 i.name AS product_name,
 SUM(o.quantity) AS total_sold,
@@ -262,47 +286,40 @@ FROM orders o
 JOIN inventory i ON i.id = o.product_id
 WHERE o.business_id=?
 AND o.status='Completed'
-AND YEAR(o.created_at)=?
-AND MONTH(o.created_at)=?
+AND o.created_at >= ?
+AND o.created_at < ?
 GROUP BY o.product_id
-ORDER BY total_sold DESC
-LIMIT 5
+ORDER BY revenue DESC
 ");
 
-if(!$topStmt){
-die("Prepare failed: ".$conn->error);
+$dailyStmt->bind_param("iss",$business_id,$rangeStartSql,$rangeEndSql);
+$dailyStmt->execute();
+$resDaily=$dailyStmt->get_result();
+
+while($row=$resDaily->fetch_assoc()){
+    $dailyProducts[]=$row;
+    $dailyTotalRevenue += (float)$row['revenue'];
 }
 
-$topStmt->bind_param("iii",$business_id,$selectedYear,$selectedMonth);
-$topStmt->execute();
-$resTop=$topStmt->get_result();
+$topProducts=array_slice($dailyProducts, 0, 5);
 
-while($row=$resTop->fetch_assoc()){
-$topProducts[]=$row;
-}
-
-$monthName=date("F",mktime(0,0,0,$selectedMonth,1));
-
-$totalCustomers=$totals['total_customers'] ?? 0;
-$genderStmt=$conn->prepare("
-SELECT
-COUNT(DISTINCT CASE WHEN c.gender='Male' THEN o.consumer_id END) AS men,
-COUNT(DISTINCT CASE WHEN c.gender='Female' THEN o.consumer_id END) AS women
-FROM orders o
-JOIN consumers c ON c.c_id = o.consumer_id
-WHERE o.business_id = ?
-AND o.status = 'Completed'
-AND YEAR(o.created_at) = ?
-AND MONTH(o.created_at) = ?
-");
-
-$genderStmt->bind_param("iii",$business_id,$selectedYear,$selectedMonth);
-$genderStmt->execute();
-
-$genderRes=$genderStmt->get_result()->fetch_assoc();
-
-$totalMen=$genderRes['men'] ?? 0;
-$totalWomen=$genderRes['women'] ?? 0;
+/* Compatibility values for the hidden legacy dashboard block below. */
+$selectedYear = (int)$dateObj->format('Y');
+$selectedMonth = (int)$dateObj->format('n');
+$years = range((int)date('Y'), 2020);
+$daysInMonth = cal_days_in_month(CAL_GREGORIAN, $selectedMonth, $selectedYear);
+$todayYear = (int) date("Y");
+$todayMonth = (int) date("n");
+$todayDay = (int) date("j");
+$selectedDay = $period === 'day' ? (int)$dateObj->format('j') : null;
+$monthName = date("F", mktime(0,0,0,$selectedMonth,1));
+$totalCustomers = $totalBuyers;
+$dailySales = array_fill(1, $daysInMonth, 0);
+$dailyOrders = array_fill(1, $daysInMonth, 0);
+$dailyCustomers = array_fill(1, $daysInMonth, 0);
+$monthlySales = array_fill(1, 12, 0);
+$monthlyFollowers = array_fill(1, 12, 0);
+$hourlySales = array_fill(0, 24, 0);
 ?>
 
 <!DOCTYPE html>
@@ -872,6 +889,371 @@ height:200px;
 }
 }
 
+.legacy-hide{
+display:none !important;
+}
+
+.dashboard-hero{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:24px;
+margin-bottom:20px;
+}
+
+.dashboard-hero h1{
+margin:4px 0 6px;
+font-size:30px;
+line-height:1.15;
+color:#001a47;
+}
+
+.dashboard-hero p{
+margin:0;
+color:#64748b;
+font-size:14px;
+line-height:1.5;
+}
+
+.eyebrow{
+font-size:12px;
+font-weight:700;
+letter-spacing:.08em;
+text-transform:uppercase;
+color:#0f766e;
+}
+
+.filter-panel{
+min-width:320px;
+display:grid;
+grid-template-columns:1fr;
+gap:10px;
+padding:14px;
+background:#fff;
+border:1px solid #e5e7eb;
+border-radius:16px;
+box-shadow:0 8px 20px rgba(0,0,0,0.05);
+}
+
+.period-tabs{
+grid-column:1 / -1;
+display:grid;
+grid-template-columns:repeat(4,1fr);
+gap:6px;
+}
+
+.period-tabs button,
+.score-card{
+border:none;
+cursor:pointer;
+font-family:inherit;
+}
+
+.period-tabs button{
+padding:9px 10px;
+border-radius:10px;
+background:#f1f5f9;
+color:#334155;
+font-weight:700;
+}
+
+.period-tabs button.active{
+background:#001a47;
+color:#fff;
+box-shadow:inset 0 0 0 1px #001a47, 0 10px 18px rgba(0,26,71,.18);
+}
+
+.period-tabs button:active,
+.period-tabs button:focus-visible{
+background:#001a47;
+color:#fff;
+outline:none;
+}
+
+.filter-panel label{
+display:flex;
+flex-direction:column;
+gap:5px;
+font-size:12px;
+font-weight:700;
+color:#475569;
+}
+
+.date-field{
+grid-column:1 / -1;
+}
+
+.date-control-row{
+display:flex;
+align-items:center;
+gap:10px;
+}
+
+.filter-panel input{
+width:100%;
+padding:10px;
+border:1px solid #d1d5db;
+border-radius:10px;
+font-size:14px;
+min-height:42px;
+}
+
+.date-control-row input[type="date"]{
+flex:1 1 auto;
+padding:10px 12px;
+font-weight:700;
+background:#fff;
+}
+
+.today-link{
+flex:0 0 auto;
+display:inline-flex;
+justify-content:center;
+align-items:center;
+padding:10px 16px;
+min-height:42px;
+border-radius:10px;
+background:#eef2ff;
+color:#001a47;
+font-weight:700;
+text-decoration:none;
+white-space:nowrap;
+}
+
+.score-grid{
+display:grid;
+grid-template-columns:repeat(4,minmax(0,1fr));
+gap:14px;
+margin-bottom:18px;
+}
+
+.score-card{
+text-align:left;
+padding:18px;
+border-radius:16px;
+background:#fff;
+box-shadow:0 8px 20px rgba(0,0,0,0.05);
+border:1px solid #e5e7eb;
+transition:.18s ease;
+}
+
+.score-card span{
+display:block;
+font-size:13px;
+font-weight:700;
+color:#64748b;
+}
+
+.score-card strong{
+display:block;
+margin-top:8px;
+font-size:22px;
+color:#001a47;
+overflow-wrap:anywhere;
+}
+
+.score-card.active,
+.score-card:hover{
+border-color:#001a47;
+background:#f8fbff;
+transform:translateY(-1px);
+}
+
+.analytics-grid,
+.content-grid{
+display:grid;
+grid-template-columns:repeat(2,minmax(0,1fr));
+gap:16px;
+margin-bottom:18px;
+}
+
+.panel-title{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:12px;
+margin-bottom:12px;
+}
+
+.panel-title span{
+display:block;
+font-size:17px;
+font-weight:800;
+color:#001a47;
+}
+
+.panel-title small{
+display:block;
+margin-top:4px;
+font-size:12px;
+color:#64748b;
+}
+
+.chart-container.tall{
+height:310px;
+}
+
+.dashboard-table th{
+font-size:12px;
+color:#64748b;
+text-transform:uppercase;
+letter-spacing:.04em;
+border-bottom:1px solid #e5e7eb;
+}
+
+.dashboard-table td{
+border-bottom:1px solid #eef2f7;
+color:#1f2937;
+}
+
+.money{
+font-weight:800;
+color:#001a47 !important;
+}
+
+.empty-cell{
+text-align:center;
+padding:28px !important;
+color:#94a3b8 !important;
+}
+
+.total-row{
+background:#f8fafc;
+font-weight:800;
+}
+
+.total-row td:first-child{
+text-align:right;
+}
+
+.buyer-breakdown{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:10px;
+margin-top:14px;
+}
+
+.buyer-breakdown div{
+padding:14px;
+border-radius:14px;
+background:#f8fafc;
+text-align:center;
+}
+
+.buyer-breakdown strong,
+.buyer-breakdown span{
+display:block;
+}
+
+.buyer-breakdown strong{
+font-size:22px;
+color:#001a47;
+}
+
+.buyer-breakdown span{
+font-size:12px;
+color:#64748b;
+font-weight:700;
+}
+
+.insight-note{
+margin-top:12px;
+padding:12px 14px;
+border-radius:12px;
+background:#f8fafc;
+color:#334155;
+font-size:13px;
+line-height:1.5;
+}
+
+.gender-card{
+display:grid;
+grid-template-columns:1.1fr .9fr;
+gap:18px;
+align-items:center;
+}
+
+.gender-chart-wrap{
+height:240px;
+}
+
+.theme-dark .filter-panel,
+.theme-dark .score-card,
+.theme-dark .card{
+background:#111 !important;
+border-color:#2d2d2d;
+}
+
+.theme-dark .dashboard-hero h1,
+.theme-dark .score-card strong,
+.theme-dark .panel-title span,
+.theme-dark .money,
+.theme-dark .buyer-breakdown strong{
+color:#ededed !important;
+}
+
+.theme-dark .dashboard-hero p,
+.theme-dark .score-card span,
+.theme-dark .panel-title small{
+color:#b8b8b8;
+}
+
+.theme-dark .buyer-breakdown div,
+.theme-dark .period-tabs button,
+.theme-dark .insight-note{
+background:#1a1a1a;
+}
+
+@media (max-width:900px){
+.dashboard-hero,
+.analytics-grid,
+.content-grid,
+.gender-card{
+grid-template-columns:1fr;
+display:grid;
+}
+
+.filter-panel{
+min-width:0;
+}
+
+.score-grid{
+grid-template-columns:repeat(2,minmax(0,1fr));
+}
+}
+
+@media (max-width:560px){
+.dashboard-hero h1{
+font-size:24px;
+}
+
+.filter-panel,
+.score-grid{
+grid-template-columns:1fr;
+}
+
+.date-control-row{
+flex-direction:column;
+align-items:stretch;
+}
+
+.today-link{
+width:100%;
+}
+
+.period-tabs{
+grid-template-columns:repeat(2,1fr);
+}
+
+.chart-container.tall{
+height:250px;
+}
+
+.gender-chart-wrap{
+height:220px;
+}
+}
+
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
 </head>
@@ -884,6 +1266,230 @@ height:200px;
 </div>
 
 <div class="container">
+
+<div class="dashboard-hero">
+    <div>
+        <div class="eyebrow">Sales Overview</div>
+        <h1><?= htmlspecialchars($rangeLabel) ?></h1>
+        <p>Track revenue, buyers, orders, visitors, followers, and product performance in one dashboard.</p>
+    </div>
+
+    <form method="GET" class="filter-panel" id="dashboardFilter">
+        <div class="period-tabs">
+            <?php foreach(['day'=>'Day','week'=>'Week','month'=>'Month','year'=>'Year'] as $value=>$label): ?>
+            <button type="submit" name="period" value="<?= $value ?>" onclick="this.form.querySelector('input[type=hidden][name=period]').value=this.value" class="<?= $period === $value ? 'active' : '' ?>">
+                <?= $label ?>
+            </button>
+            <?php endforeach; ?>
+        </div>
+
+        <label class="date-field">
+            Date
+            <div class="date-control-row">
+                <input type="date" name="date" value="<?= htmlspecialchars($selectedDate) ?>" onchange="this.form.submit()">
+                <a class="today-link" href="profdashboard.php?period=day&date=<?= date('Y-m-d') ?>">Today</a>
+            </div>
+        </label>
+
+        <input type="hidden" name="period" value="<?= htmlspecialchars($period) ?>">
+    </form>
+</div>
+
+<div class="score-grid">
+    <button class="score-card active" data-metric="sales">
+        <span>Total Sales</span>
+        <strong>&#8369;<?= number_format($totalSales,2) ?></strong>
+    </button>
+    <button class="score-card" data-metric="orders">
+        <span>Orders</span>
+        <strong><?= number_format($totalOrders) ?></strong>
+    </button>
+    <button class="score-card" data-metric="buyers">
+        <span>Buyers</span>
+        <strong><?= number_format($totalBuyers) ?></strong>
+    </button>
+    <button class="score-card" data-metric="items">
+        <span>Items Sold</span>
+        <strong><?= number_format($itemsSold) ?></strong>
+    </button>
+    <button class="score-card" data-metric="visitors">
+        <span>Visitors</span>
+        <strong><?= number_format($totalVisitors) ?></strong>
+    </button>
+    <button class="score-card" data-metric="followers">
+        <span>New Followers</span>
+        <strong><?= number_format($totalFollowers) ?></strong>
+    </button>
+    <button class="score-card" data-metric="conversion">
+        <span>Buyer Rate</span>
+        <strong><?= number_format($conversionRate,1) ?>%</strong>
+    </button>
+    <button class="score-card" data-metric="average">
+        <span>Avg. Order</span>
+        <strong>&#8369;<?= number_format($averageOrderValue,2) ?></strong>
+    </button>
+</div>
+
+<div class="analytics-grid">
+    <div class="card chart-card">
+        <div class="panel-title">
+            <div>
+                <span>Performance Trend</span>
+                <small id="trendLabel">Sales over selected <?= htmlspecialchars($period) ?></small>
+            </div>
+        </div>
+        <div class="chart-container tall">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card chart-card">
+        <div class="panel-title">
+            <div>
+                <span>Sales vs Buyers</span>
+                <small>Revenue and buyer activity side by side</small>
+            </div>
+        </div>
+        <div class="chart-container tall">
+            <canvas id="barChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="content-grid">
+    <div class="card">
+        <div class="panel-title">
+            <div>
+                <span>Product Sales</span>
+                <small><?= htmlspecialchars($rangeLabel) ?></small>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table class="dashboard-table daily-sales-table">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Sold</th>
+                        <th>Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if(empty($dailyProducts)): ?>
+                    <tr>
+                        <td colspan="3" class="empty-cell">No sales data for this filter.</td>
+                    </tr>
+                    <?php else: ?>
+                    <?php foreach($dailyProducts as $p): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($p['product_name']) ?></td>
+                        <td><?= number_format($p['total_sold']) ?></td>
+                        <td class="money">&#8369;<?= number_format($p['revenue'],2) ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <tr class="total-row">
+                        <td colspan="2">TOTAL</td>
+                        <td class="money">&#8369;<?= number_format($dailyTotalRevenue,2) ?></td>
+                    </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="panel-title">
+            <div>
+                <span>Top Products</span>
+                <small>Best-performing items for this filter</small>
+            </div>
+        </div>
+
+        <?php if(!empty($topProducts)): ?>
+        <div class="top-seller">Best Seller: <?= htmlspecialchars($topProducts[0]['product_name']) ?></div>
+        <?php endif; ?>
+
+        <div class="table-wrap">
+            <table class="dashboard-table top-products-table">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Sold</th>
+                        <th>Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if(empty($topProducts)): ?>
+                    <tr>
+                        <td colspan="3" class="empty-cell">No top products yet.</td>
+                    </tr>
+                    <?php else: ?>
+                    <?php foreach($topProducts as $p): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($p['product_name']) ?></td>
+                        <td><?= number_format($p['total_sold']) ?></td>
+                        <td class="money">&#8369;<?= number_format($p['revenue'],2) ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="buyer-breakdown">
+            <div>
+                <strong><?= number_format($totalMen) ?></strong>
+                <span>Male Buyers</span>
+            </div>
+            <div>
+                <strong><?= number_format($totalWomen) ?></strong>
+                <span>Female Buyers</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card gender-card">
+    <div>
+        <div class="panel-title">
+            <div>
+                <span>Buyer Demographics</span>
+                <small>Male and female buyers for <?= htmlspecialchars($rangeLabel) ?></small>
+            </div>
+        </div>
+
+        <div class="buyer-breakdown">
+            <div>
+                <strong><?= number_format($totalMen) ?></strong>
+                <span>Male Buyers</span>
+            </div>
+            <div>
+                <strong><?= number_format($totalWomen) ?></strong>
+                <span>Female Buyers</span>
+            </div>
+        </div>
+
+        <div class="insight-note">
+            <?php if($totalMen === 0 && $totalWomen === 0): ?>
+            No buyer gender data is available for this selected period.
+            <?php elseif($totalWomen > $totalMen): ?>
+            Women are the stronger buying segment in this selected period.
+            <?php elseif($totalMen > $totalWomen): ?>
+            Men are the stronger buying segment in this selected period.
+            <?php else: ?>
+            Male and female buyers are evenly split in this selected period.
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="gender-chart-wrap">
+        <canvas id="genderChart"></canvas>
+    </div>
+</div>
+
+</div>
+
+<div class="container legacy-hide">
 
 <div class="section-title"></div>
 
@@ -1079,7 +1685,7 @@ data-sales="&#8369;<?= number_format($dailySales[$i]) ?>"
 </div>
 </div>
 
-<div class="container">
+<div class="container legacy-hide">
     <div class="section-title">Top Products</div>
 
 <div class="card">
@@ -1132,6 +1738,171 @@ Try selecting another month or wait for new orders
 </div>
 
 <?php include 'bottom_nav.php'; ?>
+
+
+<script>
+const chartLabels = <?= json_encode($trendLabels) ?>;
+const chartSeries = {
+    sales: <?= json_encode($salesTrend) ?>,
+    orders: <?= json_encode($ordersTrend) ?>,
+    buyers: <?= json_encode($buyersTrend) ?>,
+    visitors: <?= json_encode($visitorsTrend) ?>,
+    followers: <?= json_encode($followersTrend) ?>
+};
+
+const metricLabels = {
+    sales: "Sales",
+    orders: "Orders",
+    buyers: "Buyers",
+    visitors: "Visitors",
+    followers: "New Followers"
+};
+
+const axisLabelByPeriod = {
+    day: "Dates",
+    week: "Dates",
+    month: "Months",
+    year: "Years"
+};
+
+const trendChart = new Chart(document.getElementById("trendChart"), {
+    type: "line",
+    data: {
+        labels: chartLabels,
+        datasets: [{
+            label: "Sales",
+            data: chartSeries.sales,
+            borderColor: "#001a47",
+            backgroundColor: "rgba(0,26,71,.12)",
+            fill: true,
+            tension: .35,
+            pointRadius: 3
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: {
+                title: {
+                    display: true,
+                    text: axisLabelByPeriod["<?= htmlspecialchars($period) ?>"]
+                }
+            },
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: "Sales"
+                }
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById("barChart"), {
+    type: "bar",
+    data: {
+        labels: chartLabels,
+        datasets: [
+            {
+                label: "Sales",
+                data: chartSeries.sales,
+                backgroundColor: "rgba(0,26,71,.78)",
+                yAxisID: "y"
+            },
+            {
+                label: "Buyers",
+                data: chartSeries.buyers,
+                backgroundColor: "rgba(15,118,110,.72)",
+                yAxisID: "y1"
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom" } },
+        scales: {
+            x: {
+                title: {
+                    display: true,
+                    text: axisLabelByPeriod["<?= htmlspecialchars($period) ?>"]
+                }
+            },
+            y: {
+                beginAtZero: true,
+                position: "left",
+                title: {
+                    display: true,
+                    text: "Sales"
+                }
+            },
+            y1: { beginAtZero: true, position: "right", grid: { drawOnChartArea: false } }
+        }
+    }
+});
+
+new Chart(document.getElementById("genderChart"), {
+    type: "bar",
+    data: {
+        labels: ["Male Buyers", "Female Buyers"],
+        datasets: [{
+            label: "Buyers",
+            data: [<?= $totalMen ?>, <?= $totalWomen ?>],
+            backgroundColor: ["#001a47", "#0f766e"],
+            borderRadius: 10,
+            borderWidth: 0
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            x: {
+                grid: {
+                    display: false
+                }
+            },
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    precision: 0
+                },
+                title: {
+                    display: true,
+                    text: "Buyers"
+                }
+            }
+        }
+    }
+});
+
+document.querySelectorAll(".score-card[data-metric]").forEach(card => {
+    card.addEventListener("click", () => {
+        const metric = card.dataset.metric;
+        if(!chartSeries[metric]) return;
+
+        document.querySelectorAll(".score-card").forEach(item => item.classList.remove("active"));
+        card.classList.add("active");
+
+        trendChart.data.datasets[0].label = metricLabels[metric];
+        trendChart.data.datasets[0].data = chartSeries[metric];
+        trendChart.data.datasets[0].borderColor = metric === "sales" ? "#001a47" : "#0f766e";
+        trendChart.data.datasets[0].backgroundColor = metric === "sales" ? "rgba(0,26,71,.12)" : "rgba(15,118,110,.12)";
+        trendChart.options.scales.y.title.text = metricLabels[metric];
+        trendChart.update();
+
+        document.getElementById("trendLabel").textContent = metricLabels[metric] + " over selected <?= htmlspecialchars($period) ?>";
+    });
+});
+</script>
 
 
 <script>

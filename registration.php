@@ -198,95 +198,226 @@ $stmt->bind_param(
 
 <style>
 
-*{ box-sizing:border-box; }
+*,
+*::before,
+*::after{ box-sizing:border-box; }
+
+:root{
+    --primary:#001a47;
+    --primary-2:#0b3a75;
+    --accent:#0f766e;
+    --text:#111827;
+    --muted:#667085;
+    --line:#d9e1ec;
+    --surface:#ffffff;
+    --soft:#f3f6fb;
+    --danger:#b42318;
+}
 
 body{
     margin:0;
-    font-family:Arial;
-    background:#f6f7fb;
+    font-family:Arial, Helvetica, sans-serif;
+    color:var(--text);
+    background:
+        linear-gradient(135deg, rgba(0,26,71,.08), rgba(15,118,110,.06)),
+        #f6f8fc;
 }
-
-/* HEADER */
-.header{
-    width:100%;
-    background:#fff;
-    padding:14px 0;
-    display:flex;
-    justify-content:center;
-    border-bottom:1px solid #eee;
-}
-
-.header img{ height:42px; }
 
 /* CONTAINER */
 .container{
-    max-width:720px;
-    margin:30px auto;
-    background:#fff;
-    padding:25px;
-    padding-bottom:110px;
-    border-radius:12px;
-    box-shadow:0 4px 14px rgba(0,0,0,0.06);
+    max-width:860px;
+    margin:34px auto;
+    background:var(--surface);
+    padding:34px;
+    padding-bottom:120px;
+    border:1px solid rgba(0,26,71,.08);
+    border-radius:16px;
+    box-shadow:0 18px 45px rgba(15,23,42,0.08);
+}
+
+.page-kicker{
+    margin:0 0 8px;
+    color:var(--accent);
+    font-size:12px;
+    font-weight:800;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+}
+
+h2{
+    margin:0;
+    color:var(--primary);
+    font-size:30px;
+    line-height:1.2;
+}
+
+h3{
+    margin:12px 0 0;
+    font-size:18px;
+    line-height:1.35;
+    color:#243b63;
+}
+
+.event-subtitle{
+    max-width:620px;
+    margin:10px 0 28px;
+    font-size:15px;
+    line-height:1.6;
+    color:var(--muted);
+}
+
+.form-section{
+    padding-top:24px;
+    margin-top:24px;
+    border-top:1px solid var(--line);
+}
+
+.section-title{
+    margin:0 0 16px;
+    font-size:15px;
+    color:var(--primary);
+    font-weight:800;
+}
+
+.form-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:18px 20px;
+}
+
+.form-field{
+    min-width:0;
+}
+
+.full-width{
+    grid-column:1 / -1;
 }
 
 /* INPUTS */
-input,select,textarea{
+label{
+    display:block;
+    margin-bottom:7px;
+    color:#26344d;
+    font-size:13px;
+    font-weight:700;
+}
+
+input,
+select,
+textarea{
     width:100%;
-    padding:10px;
-    margin-top:6px;
-    margin-bottom:15px;
-    border:1px solid #ddd;
+    margin:0;
+    padding:12px 13px;
+    border:1px solid var(--line);
     border-radius:8px;
+    background:#fff;
+    color:var(--text);
     font-size:14px;
+    outline:none;
+    transition:border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+textarea{
+    resize:vertical;
+    min-height:118px;
+}
+
+input:focus,
+select:focus,
+textarea:focus{
+    border-color:var(--primary-2);
+    box-shadow:0 0 0 4px rgba(11,58,117,.12);
+}
+
+input::placeholder,
+textarea::placeholder{
+    color:#98a2b3;
 }
 
 input[type="checkbox"]{
-    width:16px;
-    height:16px;
-    accent-color:#001a47;
+    width:18px;
+    height:18px;
+    flex:0 0 18px;
+    margin:0;
+    accent-color:var(--primary);
 }
 
-label{
-    font-weight:600;
-    display:block;
+.checkbox-label{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin:4px 0 0;
+    color:#26344d;
+}
+
+.required{
+    color:var(--danger);
+}
+
+.form-alert{
+    margin:0 0 20px;
+    padding:12px 14px;
+    border-radius:8px;
+    border:1px solid rgba(180,35,24,.22);
+    background:#fff4f2;
+    color:var(--danger);
+    font-size:14px;
+    font-weight:700;
 }
 
 /* BUTTON */
 button{
     width:100%;
-    padding:12px;
+    margin-top:26px;
+    padding:14px 18px;
     border:none;
-    background:#001a47;
+    background:linear-gradient(135deg, var(--primary), var(--primary-2));
     color:#fff;
     border-radius:8px;
-    font-weight:600;
+    font-weight:800;
     font-size:15px;
     cursor:pointer;
+    box-shadow:0 12px 22px rgba(0,26,71,.18);
+    transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease;
 }
 
-.event-subtitle{
-    font-size:14px;
-    color:#555;
-    margin-bottom:20px;
+button:hover{
+    transform:translateY(-1px);
+    box-shadow:0 16px 28px rgba(0,26,71,.24);
+}
+
+button:disabled{
+    background:#98a2b3 !important;
+    cursor:not-allowed !important;
+    box-shadow:none;
+    transform:none;
 }
 
 /* AGREEMENT */
+.agreement-wrapper{
+    margin-top:24px;
+    padding-top:22px;
+    border-top:1px solid var(--line);
+}
+
 .agreement-head{
     display:flex;
-    gap:8px;
+    gap:10px;
     align-items:flex-start;
 }
 
 .agreement-title{
-    font-weight:700;
-    font-size:16px;
+    font-weight:800;
+    font-size:15px;
+    color:#26344d;
 }
 
 .agreement-text{
-    margin-top:8px;
-    margin-left:30px;
+    margin-top:10px;
+    margin-left:28px;
     font-size:13px;
-    line-height:1.6;
+    line-height:1.65;
+    color:#5b6474;
     text-align:justify;
     word-break:break-word;
 }
@@ -306,11 +437,12 @@ button{
 }
 
 .success-box{
-    width:260px;
+    width:300px;
     background:#fff;
-    border-radius:14px;
-    padding:25px 20px;
+    border-radius:16px;
+    padding:28px 22px;
     text-align:center;
+    box-shadow:0 24px 50px rgba(15,23,42,.18);
     animation:pop .25s ease;
 }
 
@@ -357,6 +489,37 @@ button{
     to{transform:scale(1);}
 }
 
+.theme-dark .container,
+.theme-dark .success-box{
+    background:#111111;
+    border-color:#2d2d2d;
+}
+
+.theme-dark h2,
+.theme-dark h3,
+.theme-dark .section-title,
+.theme-dark label,
+.theme-dark .agreement-title,
+.theme-dark .success-text{
+    color:#ededed;
+}
+
+.theme-dark .event-subtitle,
+.theme-dark .agreement-text{
+    color:#b8b8b8;
+}
+
+.theme-dark .form-section,
+.theme-dark .agreement-wrapper{
+    border-top-color:#2d2d2d;
+}
+
+.theme-dark .form-alert{
+    background:#2a1513;
+    border-color:#65312b;
+    color:#ffb4ab;
+}
+
 /* MOBILE */
 @media (max-width:768px){
     body{ background:#fff; }
@@ -364,15 +527,26 @@ button{
         margin:0;
         max-width:100%;
         border-radius:0;
+        border:none;
         box-shadow:none;
-        padding:16px 16px 110px;
+        padding:22px 16px 110px;
     }
-    input,select,textarea{
+    h2{
+        font-size:25px;
+    }
+    .form-grid{
+        grid-template-columns:1fr;
+        gap:16px;
+    }
+    input,
+    select,
+    textarea{
         font-size:16px;
         padding:13px;
     }
     .agreement-text{
         margin-left:0;
+        text-align:left;
     }
 }
 
@@ -383,10 +557,9 @@ button{
 <body>
 <?php include 'mobile_back_button.php'; ?>
 
-<div class="header"></div>
-
 <div class="container">
 
+<p class="page-kicker">Official Event Form</p>
 <h2>Event Registration</h2>
 
 <?php if($event_title != ""){ ?>
@@ -398,94 +571,144 @@ Please complete the form below to register for this event.
 </p>
 
 <?php if($error!=""){ ?>
-<div style="color:#d60000;margin-bottom:10px;"><?php echo $error; ?></div>
+<div class="form-alert"><?php echo $error; ?></div>
 <?php } ?>
 
 <form method="POST">
 
 <input type="hidden" name="event_id" value="<?php echo $event_id; ?>">
 
-<label>Email *</label>
-<input type="email" name="email" required>
+<div class="form-section">
+    <p class="section-title">Personal Information</p>
 
-<label>First Name *</label>
-<input type="text" name="first_name" required>
+    <div class="form-grid">
+        <div class="form-field full-width">
+            <label>Email <span class="required">*</span></label>
+            <input type="email" name="email" required>
+        </div>
 
-<label>Last Name *</label>
-<input type="text" name="last_name" required>
+        <div class="form-field">
+            <label>First Name <span class="required">*</span></label>
+            <input type="text" name="first_name" required>
+        </div>
 
-<label>Contact Number *</label>
-<input
-    type="text"
-    name="contact_number"
-    maxlength="11"
-    pattern="[0-9]{11}"
-    inputmode="numeric"
-    oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)"
-    required
->
+        <div class="form-field">
+            <label>Last Name <span class="required">*</span></label>
+            <input type="text" name="last_name" required>
+        </div>
 
-<label>Negosyo Center *</label>
-<select name="negosyo_center" required>
-<option value="">Select Negosyo Center</option>
-<?php foreach($negosyo_centers as $nc){ ?>
-<option value="<?php echo $nc; ?>"><?php echo $nc; ?></option>
-<?php } ?>
-</select>
+        <div class="form-field">
+            <label>Contact Number <span class="required">*</span></label>
+            <input
+                type="text"
+                name="contact_number"
+                maxlength="11"
+                pattern="[0-9]{11}"
+                inputmode="numeric"
+                oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)"
+                required
+            >
+        </div>
 
-<label>Age *</label>
-<input type="number" name="age" required>
+        <div class="form-field">
+            <label>Age <span class="required">*</span></label>
+            <input type="number" name="age" required>
+        </div>
 
-<label>Sex *</label>
-<select name="sex" required>
-<option value="">Select</option>
-<option>Male</option>
-<option>Female</option>
-<option>Other</option>
-</select>
+        <div class="form-field">
+            <label>Sex <span class="required">*</span></label>
+            <select name="sex" required>
+                <option value="">Select</option>
+                <option>Male</option>
+                <option>Female</option>
+                <option>Other</option>
+            </select>
+        </div>
 
-<label>Social Classification *</label>
-<select name="social_classification" required>
-<option value="">Select</option>
-<option>Abled</option>
-<option>Differently Abled</option>
-<option>Indigenous Person</option>
-</select>
+        <div class="form-field">
+            <label>Social Classification <span class="required">*</span></label>
+            <select name="social_classification" required>
+                <option value="">Select</option>
+                <option>Abled</option>
+                <option>Differently Abled</option>
+                <option>Indigenous Person</option>
+            </select>
+        </div>
 
-<label><input type="checkbox" name="ofw"> OFW</label>
+        <div class="form-field full-width">
+            <label class="checkbox-label"><input type="checkbox" name="ofw"> OFW</label>
+        </div>
+    </div>
+</div>
 
-<label>Province *</label>
-<select id="province" name="province" required>
-    <option value="">Select Province</option>
-</select>
+<div class="form-section">
+    <p class="section-title">Location and Center</p>
 
-<label>City / Municipality *</label>
-<select id="city" name="city" required>
-    <option value="">Select City</option>
-</select>
+    <div class="form-grid">
+        <div class="form-field full-width">
+            <label>Negosyo Center <span class="required">*</span></label>
+            <select name="negosyo_center" required>
+                <option value="">Select Negosyo Center</option>
+                <?php foreach($negosyo_centers as $nc){ ?>
+                <option value="<?php echo $nc; ?>"><?php echo $nc; ?></option>
+                <?php } ?>
+            </select>
+        </div>
 
-<label>Barangay *</label>
-<select id="barangay" name="barangay" required>
-    <option value="">Select Barangay</option>
-</select>
+        <div class="form-field">
+            <label>Province <span class="required">*</span></label>
+            <select id="province" name="province" required>
+                <option value="">Select Province</option>
+            </select>
+        </div>
 
-<label>Business Name</label>
-<input type="text" name="business_name" placeholder="N/A if not applicable">
+        <div class="form-field">
+            <label>City / Municipality <span class="required">*</span></label>
+            <select id="city" name="city" required>
+                <option value="">Select City</option>
+            </select>
+        </div>
 
-<label>Business Address</label>
-<input type="text" name="business_address" placeholder="N/A if not applicable">
+        <div class="form-field full-width">
+            <label>Barangay <span class="required">*</span></label>
+            <select id="barangay" name="barangay" required>
+                <option value="">Select Barangay</option>
+            </select>
+        </div>
+    </div>
+</div>
 
-<label>Position *</label>
-<select name="position" required>
-<option value="">Select</option>
-<option>Owner</option>
-<option>Manager/Employee</option>
-<option>Consumer</option>
-<option>N/A</option>
-</select>
+<div class="form-section">
+    <p class="section-title">Business Details</p>
 
-<label>Question</label>
-<textarea name="question" rows="4"></textarea>
+    <div class="form-grid">
+        <div class="form-field">
+            <label>Business Name</label>
+            <input type="text" name="business_name" placeholder="N/A if not applicable">
+        </div>
+
+        <div class="form-field">
+            <label>Business Address</label>
+            <input type="text" name="business_address" placeholder="N/A if not applicable">
+        </div>
+
+        <div class="form-field full-width">
+            <label>Position <span class="required">*</span></label>
+            <select name="position" required>
+                <option value="">Select</option>
+                <option>Owner</option>
+                <option>Manager/Employee</option>
+                <option>Consumer</option>
+                <option>N/A</option>
+            </select>
+        </div>
+
+        <div class="form-field full-width">
+            <label>Question</label>
+            <textarea name="question" rows="4" placeholder="Write your question for the event organizers"></textarea>
+        </div>
+    </div>
+</div>
 
 <div class="agreement-wrapper">
 
@@ -513,7 +736,7 @@ Please complete the form below to register for this event.
 <div class="success-overlay" id="successModal">
     <div class="success-box">
         <div class="check-circle">
-            <div class="check">✓</div>
+            <div class="check">&#10003;</div>
         </div>
         <div class="success-text">Registration Successful</div>
     </div>
