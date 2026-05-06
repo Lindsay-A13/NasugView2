@@ -2,27 +2,49 @@
 
 require_once "config/session.php";
 require_once "config/db.php";
+require_once "config/evaluation_helper.php";
+
+ensureEventRegistrationCodeSupport($conn);
 
 $success = "";
 $error   = "";
 
 $event_id = intval($_GET['event_id'] ?? 0);
+$event_code = normalizeEventCode((string) ($_GET['event_code'] ?? $_GET['code'] ?? ''));
 $event_title = "";
 $show_success_modal = false;
 $isAlreadyRegistered = false;
 
 $existing_user = null;
 
-$email_check = $_GET['email'] ?? '';
+$email_check = trim((string) ($_GET['email'] ?? ($email ?? '')));
 
-if($event_id > 0 && $email_check != ""){
+if($event_code === "" && $event_id > 0){
+    $eventById = $conn->prepare("
+        SELECT event_code
+        FROM events
+        WHERE id = ?
+        LIMIT 1
+    ");
+    $eventById->bind_param("i", $event_id);
+    $eventById->execute();
+    $eventByIdResult = $eventById->get_result();
+
+    if($row = $eventByIdResult->fetch_assoc()){
+        $event_code = normalizeEventCode($row['event_code']);
+    }
+
+    $eventById->close();
+}
+
+if($event_code !== "" && $email_check != ""){
     $stmt = $conn->prepare("
         SELECT *
         FROM event_registrations
-        WHERE event_id = ? AND email = ?
+        WHERE REPLACE(UPPER(event_code), '-', '') = ? AND email = ?
         LIMIT 1
     ");
-    $stmt->bind_param("is", $event_id, $email_check);
+    $stmt->bind_param("ss", $event_code, $email_check);
     $stmt->execute();
     $res = $stmt->get_result();
 
@@ -32,23 +54,22 @@ if($event_id > 0 && $email_check != ""){
 }
 
 $isDisabled = $existing_user ? 'disabled' : '';
+$isAlreadyRegistered = $existing_user ? true : $isAlreadyRegistered;
+
+if($isAlreadyRegistered && $error === ""){
+    $error = "You are already registered for this event.";
+}
 
 /* LOAD EVENT TITLE */
-if($event_id > 0){
+if($event_code !== ""){
+    $event = findEventByEvaluationCode($conn, $event_code);
 
-    $ev = $conn->prepare("
-        SELECT title
-        FROM events
-        WHERE id = ?
-        LIMIT 1
-    ");
-
-    $ev->bind_param("i",$event_id);
-    $ev->execute();
-    $evResult = $ev->get_result();
-
-    if($row = $evResult->fetch_assoc()){
-        $event_title = $row['title'];
+    if($event){
+        $event_id = (int) $event['id'];
+        $event_code = normalizeEventCode($event['event_code']);
+        $event_title = $event['title'];
+    }else{
+        $error = "Event not found.";
     }
 }
 
@@ -64,6 +85,7 @@ $negosyo_centers = [
 /* SAVE REGISTRATION */
 if(isset($_POST['submit_registration'])){
 
+    $event_code = normalizeEventCode((string) ($_POST['event_code'] ?? ''));
     $email = trim($_POST['email']);
     $first_name = trim($_POST['first_name']);
     $last_name = trim($_POST['last_name']);
@@ -92,15 +114,25 @@ $residence = $barangay . ', ' . $city . ', ' . $province;
     $position = trim($_POST['position']);
     $question = trim($_POST['question']);
     $agreed_terms = isset($_POST['agreed_terms']) ? 1 : 0;
+    $submitted_event = $event_code !== "" ? findEventByEvaluationCode($conn, $event_code) : null;
+
+    if($submitted_event){
+        $event_id = (int) $submitted_event['id'];
+        $event_code = normalizeEventCode($submitted_event['event_code']);
+        $event_title = $submitted_event['title'];
+    }
 
     /* VALIDATION */
     if(
-        $email=="" || $first_name=="" || $last_name=="" ||
+        $event_code=="" || $email=="" || $first_name=="" || $last_name=="" ||
         $contact_number=="" || $negosyo_center=="" ||
         $age<=0 || $sex=="" || $social_classification=="" ||
         $residence=="" || $position==""
     ){
         $error = "Please fill all required fields.";
+    }
+    else if(!$submitted_event){
+        $error = "Event not found.";
     }
     else if($agreed_terms == 0){
         $error = "You must agree to the terms and agreement.";
@@ -114,10 +146,10 @@ $residence = $barangay . ', ' . $city . ', ' . $province;
         $check = $conn->prepare("
             SELECT id
             FROM event_registrations
-            WHERE event_id = ? AND email = ?
+            WHERE REPLACE(UPPER(event_code), '-', '') = ? AND email = ?
             LIMIT 1
         ");
-        $check->bind_param("is",$event_id,$email);
+        $check->bind_param("ss",$event_code,$email);
         $check->execute();
         $dup = $check->get_result();
 
@@ -126,11 +158,11 @@ $residence = $barangay . ', ' . $city . ', ' . $province;
 if($dup->num_rows > 0){
     $error = "You are already registered for this event.";
     $isAlreadyRegistered = true;
-}
+}else{
 
             $stmt = $conn->prepare("
     INSERT INTO event_registrations(
-        event_id,
+        event_code,
         email,
         first_name,
         last_name,
@@ -157,8 +189,8 @@ if(!$stmt){
 }
 
 $stmt->bind_param(
-    "isssssissssssssssi",
-    $event_id,
+    "ssssssissssssssssi",
+    $event_code,
     $email,
     $first_name,
     $last_name,
@@ -183,6 +215,7 @@ $stmt->bind_param(
                 $show_success_modal = true;
             }else{
                 $error = "Failed to register.";
+            }
             }
         }
     }
@@ -576,7 +609,7 @@ Please complete the form below to register for this event.
 
 <form method="POST">
 
-<input type="hidden" name="event_id" value="<?php echo $event_id; ?>">
+<input type="hidden" name="event_code" value="<?php echo htmlspecialchars($event_code); ?>">
 
 <div class="form-section">
     <p class="section-title">Personal Information</p>
@@ -584,7 +617,12 @@ Please complete the form below to register for this event.
     <div class="form-grid">
         <div class="form-field full-width">
             <label>Email <span class="required">*</span></label>
-            <input type="email" name="email" required>
+            <input
+                type="email"
+                name="email"
+                value="<?php echo htmlspecialchars($_POST['email'] ?? $email_check); ?>"
+                required
+            >
         </div>
 
         <div class="form-field">
