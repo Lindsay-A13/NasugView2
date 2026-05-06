@@ -1,12 +1,16 @@
 <?php
 require_once "config/session.php";
 require_once "config/db.php";
+require_once "config/evaluation_helper.php";
+
+ensureEventRegistrationCodeSupport($conn);
 
 $events = [];
 
 $stmt = $conn->prepare("
     SELECT 
         id,
+        event_code,
         title,
         description,
         start_date_and_time,
@@ -30,6 +34,7 @@ while($row = $result->fetch_assoc()){
 
     $events[] = [
         "event_id" => $row['id'],
+        "event_code" => $row['event_code'],
         "title" => $row['title'],
         "description" => $row['description'],
         "event_date" => $dateOnly,
@@ -273,7 +278,7 @@ function renderSlide(){
     }
 
     const showRegisterButton =
-        !allThreeMissing(event) && hasValue(event.event_id);
+        !allThreeMissing(event) && hasValue(event.event_code);
 
     sliderBody.innerHTML = `
     <div class="event-content">
@@ -288,7 +293,7 @@ function renderSlide(){
 
     ${
         showRegisterButton
-        ? `<button class="register-btn" onclick="registerEvent(${event.event_id})">Register</button>`
+        ? `<button class="register-btn" onclick="registerEvent('${event.event_code}')">Register</button>`
         : ``
     }
     `;
@@ -316,8 +321,8 @@ function prevEvent(){
 
 
 /* REGISTER */
-function registerEvent(id){
-    window.location.href = "registration.php?event_id=" + id;
+function registerEvent(code){
+    window.location.href = "registration.php?event_code=" + encodeURIComponent(code);
 }
 
 

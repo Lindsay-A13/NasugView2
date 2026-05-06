@@ -237,6 +237,11 @@ body {
         <span>Profile</span>
     </a>
 
+    <a href="evaluation.php" class="option">
+        <i class="fa-regular fa-clipboard"></i>
+        <span>Event Evaluation</span>
+    </a>
+
     <?php if($user_type === "consumer"): ?>
 
 <a href="orders.php" class="option">
