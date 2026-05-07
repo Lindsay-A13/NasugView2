@@ -36,23 +36,22 @@ $rangeStart = clone $dateObj;
 $rangeEnd = clone $dateObj;
 
 if($period === 'day'){
-    $rangeEnd->setTime(0, 0, 0);
+    $rangeStart->setTime(0, 0, 0);
+    $rangeEnd = clone $rangeStart;
     $rangeEnd->modify('+1 day');
-    $rangeStart = clone $rangeEnd;
-    $rangeStart->modify('-6 days');
 }elseif($period === 'week'){
     $rangeStart->modify('monday this week')->setTime(0, 0, 0);
     $rangeEnd = clone $rangeStart;
     $rangeEnd->modify('+7 days');
 }elseif($period === 'month'){
-    $rangeStart->setDate((int)$dateObj->format('Y'), 1, 1)->setTime(0, 0, 0);
+    $rangeStart->setDate((int)$dateObj->format('Y'), (int)$dateObj->format('m'), 1)->setTime(0, 0, 0);
     $rangeEnd = clone $rangeStart;
-    $rangeEnd->modify('+1 year');
+    $rangeEnd->modify('+1 month');
 }else{
     $selectedYearValue = (int)$dateObj->format('Y');
-    $rangeStart->setDate($selectedYearValue - 4, 1, 1)->setTime(0, 0, 0);
+    $rangeStart->setDate($selectedYearValue, 1, 1)->setTime(0, 0, 0);
     $rangeEnd = clone $rangeStart;
-    $rangeEnd->modify('+5 years');
+    $rangeEnd->modify('+1 year');
 }
 
 $rangeStartSql = $rangeStart->format('Y-m-d H:i:s');
@@ -60,15 +59,15 @@ $rangeEndSql = $rangeEnd->format('Y-m-d H:i:s');
 $rangeLabel = $rangeStart->format('M j, Y');
 
 if($period === 'day'){
-    $rangeLabel = $rangeStart->format('M j') . ' - ' . $dateObj->format('M j, Y');
+    $rangeLabel = $rangeStart->format('M j, Y');
 }elseif($period === 'week'){
-    $rangeLabel = $rangeStart->format('M j') . ' - ' . $rangeEnd->modify('-1 day')->format('M j, Y');
-    $rangeEnd->modify('+1 day');
+    $rangeLabelEnd = clone $rangeEnd;
+    $rangeLabelEnd->modify('-1 day');
+    $rangeLabel = $rangeStart->format('M j') . ' - ' . $rangeLabelEnd->format('M j, Y');
 }elseif($period === 'month'){
-    $rangeLabel = $rangeStart->format('Y');
+    $rangeLabel = $rangeStart->format('F Y');
 }elseif($period === 'year'){
-    $rangeLabel = $rangeStart->format('Y') . ' - ' . $rangeEnd->modify('-1 day')->format('Y');
-    $rangeEnd->modify('+1 day');
+    $rangeLabel = $rangeStart->format('Y');
 }
 
 /* ================= SCORE CARDS ================= */
@@ -95,6 +94,33 @@ $totalOrders=(int)($totals['total_orders'] ?? 0);
 $totalBuyers=(int)($totals['total_buyers'] ?? 0);
 $itemsSold=(int)($totals['items_sold'] ?? 0);
 $averageOrderValue = $totalOrders > 0 ? $totalSales / $totalOrders : 0;
+
+$previousRangeEnd = clone $rangeStart;
+$previousRangeStart = clone $rangeStart;
+$rangeSeconds = $rangeEnd->getTimestamp() - $rangeStart->getTimestamp();
+$previousRangeStart->modify("-{$rangeSeconds} seconds");
+$previousRangeStartSql = $previousRangeStart->format('Y-m-d H:i:s');
+$previousRangeEndSql = $previousRangeEnd->format('Y-m-d H:i:s');
+
+$previousSalesStmt=$conn->prepare("
+SELECT COALESCE(SUM(price*quantity),0) previous_sales
+FROM orders
+WHERE business_id=?
+AND status='Completed'
+AND created_at >= ?
+AND created_at < ?
+");
+
+$previousSalesStmt->bind_param("iss",$business_id,$previousRangeStartSql,$previousRangeEndSql);
+$previousSalesStmt->execute();
+$previousSales=(float)($previousSalesStmt->get_result()->fetch_assoc()['previous_sales'] ?? 0);
+
+$salesChangeAmount = $totalSales - $previousSales;
+$salesChangePercent = $previousSales > 0 ? ($salesChangeAmount / $previousSales) * 100 : ($totalSales > 0 ? 100 : 0);
+$salesTrendDirection = $salesChangeAmount > 0 ? 'up' : ($salesChangeAmount < 0 ? 'down' : 'flat');
+$salesTrendText = $salesTrendDirection === 'flat'
+    ? 'No change from previous period'
+    : number_format(abs($salesChangePercent), 1) . '% vs previous period';
 
 $visitorStmt=$conn->prepare("
 SELECT COUNT(*) AS visitors
@@ -153,11 +179,9 @@ function emptyTrendSeries(string $period, DateTime $start): array {
     $keys = [];
 
     if($period === 'day'){
-        for($i=0;$i<7;$i++){
-            $d = clone $start;
-            $d->modify("+$i day");
-            $labels[] = $d->format("M j");
-            $keys[] = $d->format("Y-m-d");
+        for($i=0;$i<24;$i++){
+            $labels[] = date("g A", mktime($i, 0, 0));
+            $keys[] = str_pad((string)$i, 2, "0", STR_PAD_LEFT);
         }
     }elseif($period === 'week'){
         for($i=0;$i<7;$i++){
@@ -167,16 +191,17 @@ function emptyTrendSeries(string $period, DateTime $start): array {
             $keys[] = $d->format("Y-m-d");
         }
     }elseif($period === 'month'){
+        $daysInSelectedMonth = (int)$start->format("t");
+        for($i=1;$i<=$daysInSelectedMonth;$i++){
+            $d = clone $start;
+            $d->modify("+" . ($i - 1) . " day");
+            $labels[] = $d->format("M j");
+            $keys[] = $d->format("Y-m-d");
+        }
+    }else{
         for($i=1;$i<=12;$i++){
             $labels[] = date("M", mktime(0, 0, 0, $i, 1));
             $keys[] = str_pad((string)$i, 2, "0", STR_PAD_LEFT);
-        }
-    }else{
-        $startYear = (int)$start->format("Y");
-        for($i=0;$i<5;$i++){
-            $year = $startYear + $i;
-            $labels[] = (string)$year;
-            $keys[] = (string)$year;
         }
     }
 
@@ -190,21 +215,21 @@ $visitorsTrendMap = array_fill_keys($trendKeys, 0);
 $followersTrendMap = array_fill_keys($trendKeys, 0);
 
 if($period === 'day'){
-    $ordersGroup = "DATE(created_at)";
-    $visitsGroup = "DATE(visited_at)";
-    $followersGroup = "DATE(created_at)";
+    $ordersGroup = "DATE_FORMAT(created_at, '%H')";
+    $visitsGroup = "DATE_FORMAT(visited_at, '%H')";
+    $followersGroup = "DATE_FORMAT(created_at, '%H')";
 }elseif($period === 'week'){
     $ordersGroup = "DATE(created_at)";
     $visitsGroup = "DATE(visited_at)";
     $followersGroup = "DATE(created_at)";
 }elseif($period === 'month'){
+    $ordersGroup = "DATE(created_at)";
+    $visitsGroup = "DATE(visited_at)";
+    $followersGroup = "DATE(created_at)";
+}else{
     $ordersGroup = "DATE_FORMAT(created_at, '%m')";
     $visitsGroup = "DATE_FORMAT(visited_at, '%m')";
     $followersGroup = "DATE_FORMAT(created_at, '%m')";
-}else{
-    $ordersGroup = "DATE_FORMAT(created_at, '%Y')";
-    $visitsGroup = "DATE_FORMAT(visited_at, '%Y')";
-    $followersGroup = "DATE_FORMAT(created_at, '%Y')";
 }
 
 $trendStmt=$conn->prepare("
@@ -1052,6 +1077,38 @@ color:#001a47;
 overflow-wrap:anywhere;
 }
 
+.score-trend{
+display:inline-flex !important;
+align-items:center;
+gap:6px;
+margin-top:10px;
+padding:5px 8px;
+border-radius:999px;
+font-size:12px !important;
+font-weight:800 !important;
+line-height:1.2;
+}
+
+.score-trend.up{
+background:#dcfce7;
+color:#15803d !important;
+}
+
+.score-trend.down{
+background:#fee2e2;
+color:#b91c1c !important;
+}
+
+.score-trend.flat{
+background:#e5e7eb;
+color:#475569 !important;
+}
+
+.score-trend .trend-arrow{
+font-size:13px;
+line-height:1;
+}
+
 .score-card.active,
 .score-card:hover{
 border-color:#001a47;
@@ -1198,6 +1255,21 @@ color:#ededed !important;
 color:#b8b8b8;
 }
 
+.theme-dark .score-trend.up{
+background:rgba(22,163,74,.18);
+color:#4ade80 !important;
+}
+
+.theme-dark .score-trend.down{
+background:rgba(220,38,38,.18);
+color:#f87171 !important;
+}
+
+.theme-dark .score-trend.flat{
+background:#222;
+color:#cbd5e1 !important;
+}
+
 .theme-dark .buyer-breakdown div,
 .theme-dark .period-tabs button,
 .theme-dark .insight-note{
@@ -1299,6 +1371,16 @@ height:220px;
     <button class="score-card active" data-metric="sales">
         <span>Total Sales</span>
         <strong>&#8369;<?= number_format($totalSales,2) ?></strong>
+        <span class="score-trend <?= htmlspecialchars($salesTrendDirection) ?>">
+            <?php if($salesTrendDirection === 'up'): ?>
+            <span class="trend-arrow">&#9650;</span>
+            <?php elseif($salesTrendDirection === 'down'): ?>
+            <span class="trend-arrow">&#9660;</span>
+            <?php else: ?>
+            <span class="trend-arrow">-</span>
+            <?php endif; ?>
+            <?= htmlspecialchars($salesTrendText) ?>
+        </span>
     </button>
     <button class="score-card" data-metric="orders">
         <span>Orders</span>
@@ -1759,10 +1841,10 @@ const metricLabels = {
 };
 
 const axisLabelByPeriod = {
-    day: "Dates",
+    day: "Hours",
     week: "Dates",
-    month: "Months",
-    year: "Years"
+    month: "Dates",
+    year: "Months"
 };
 
 const trendChart = new Chart(document.getElementById("trendChart"), {

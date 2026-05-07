@@ -237,11 +237,6 @@ body {
         <span>Profile</span>
     </a>
 
-    <a href="evaluation.php" class="option">
-        <i class="fa-regular fa-clipboard"></i>
-        <span>Event Evaluation</span>
-    </a>
-
     <?php if($user_type === "consumer"): ?>
 
 <a href="orders.php" class="option">
@@ -260,6 +255,10 @@ body {
     <span>Event Calendar</span>
 </a>
 
+        <a href="evaluation.php" class="option">
+    <i class="fa-regular fa-clipboard"></i>
+    <span>Event Evaluation</span>
+</a>
 
         <a href="#" class="option">
     <i class="fa fa-heart"></i>
@@ -306,6 +305,11 @@ body {
       <a href="calendar.php" class="option">
     <i class="fa-regular fa-calendar"></i>
     <span>Event Calendar</span>
+</a>
+
+        <a href="evaluation.php" class="option">
+    <i class="fa-regular fa-clipboard"></i>
+    <span>Event Evaluation</span>
 </a>
 
         <a href="settings.php" class="option">

@@ -147,9 +147,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = "You have already evaluated this event.";
                 } else {
                     $comment = trim($improvementReason . "\n\n" . $serviceSuggestions);
+                    $eventCodeFromDB = normalizeEventCode((string) ($event['event_code'] ?? $eventCode));
                     $save = $conn->prepare("
                         INSERT INTO event_evaluations (
                             event_id,
+                            event_code,
                             user_id,
                             account_type,
                             full_name,
@@ -175,14 +177,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             improvement_reason,
                             service_suggestions,
                             consent_given
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ");
 
                     $contentRating = $ratings['reliability_rating'];
 
                     $save->bind_param(
-                        "iissssssssssiiiiiiiiiisssi",
+                        "isissssssssssiiiiiiiiiisssi",
                         $eventId,
+                        $eventCodeFromDB,
                         $user_id,
                         $account_type,
                         $fullName,
@@ -256,6 +259,8 @@ if ($event) {
     }
 }
 
+$showEvaluationForm = $event && $canEvaluate && !$alreadyEvaluated && $success === "";
+
 function checkedValue(string $name, string $value): string
 {
     return (string) ($_POST[$name] ?? '') === $value ? 'checked' : '';
@@ -301,22 +306,24 @@ body{
     margin:0;
     font-family:Arial, Helvetica, sans-serif;
     color:var(--text);
-    background:linear-gradient(135deg, rgba(0,26,71,.06), rgba(113,191,68,.1)), #f6f8fc;
+    background:#fff;
+    overflow-x:hidden;
 }
 .container{
-    width:min(100%, 1040px);
+    width:min(100%, 1280px);
     margin:0 auto;
     padding:24px 18px 110px;
 }
 .panel{
     background:var(--surface);
-    border:1px solid rgba(0,26,71,.1);
-    border-radius:12px;
-    box-shadow:0 18px 45px rgba(15,23,42,.08);
+    border:none;
+    border-radius:0;
+    box-shadow:none;
     overflow:hidden;
+    max-width:100%;
 }
 .intro{
-    padding:24px;
+    padding:0;
 }
 .kicker{
     margin:0 0 8px;
@@ -336,10 +343,50 @@ h1{
     color:var(--muted);
     line-height:1.55;
 }
+.code-entry{
+    display:grid;
+    grid-template-columns:minmax(520px, 64%) minmax(420px, 1fr);
+    gap:0;
+    align-items:center;
+    min-height:calc(100vh - 170px);
+    background:#fff;
+}
+.logo-panel{
+    align-self:stretch;
+    min-height:calc(100vh - 170px);
+    border:none;
+    border-radius:0;
+    background:#fff;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0;
+}
+.logo-panel img{
+    width:100%;
+    height:100%;
+    max-height:none;
+    object-fit:contain;
+}
+.logo-fallback{
+    color:var(--primary);
+    font-size:14px;
+    font-weight:800;
+    text-align:center;
+}
+.code-side{
+    min-width:0;
+    padding:48px;
+}
+.code-copy{
+    max-width:620px;
+    margin-bottom:24px;
+}
 .code-form{
     display:grid;
-    grid-template-columns:1fr auto;
+    grid-template-columns:1fr;
     gap:12px;
+    max-width:620px;
 }
 label{
     color:#26344d;
@@ -374,8 +421,9 @@ button{
     cursor:pointer;
 }
 .code-form button{
-    align-self:end;
-    min-width:132px;
+    justify-self:start;
+    min-width:180px;
+    margin-top:2px;
 }
 .form-field label{
     display:block;
@@ -398,10 +446,102 @@ button{
     background:#f0fff4;
     color:var(--success);
 }
+.modal-overlay{
+    position:fixed;
+    inset:0;
+    z-index:1000000;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    padding:18px;
+    background:rgba(15,23,42,.45);
+}
+.modal-overlay.show{
+    display:flex;
+}
+.success-modal{
+    width:min(100%, 420px);
+    background:#fff;
+    border-radius:18px;
+    box-shadow:0 28px 70px rgba(15,23,42,.28);
+    padding:32px 28px 28px;
+    text-align:center;
+}
+.success-check{
+    width:84px;
+    height:84px;
+    margin:0 auto 18px;
+    border-radius:50%;
+    background:linear-gradient(135deg, #8ed65b, #68b73d);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    animation:success-pop .45s ease-out;
+}
+.success-check::after{
+    content:"";
+    width:20px;
+    height:38px;
+    border-right:5px solid #fff;
+    border-bottom:5px solid #fff;
+    transform:rotate(45deg) scale(0);
+    transform-origin:center;
+    animation:success-draw .35s ease-out .2s forwards;
+}
+.success-title{
+    margin:0;
+    color:var(--primary);
+    font-size:24px;
+    font-weight:800;
+}
+.success-copy{
+    margin:10px 0 0;
+    color:var(--muted);
+    font-size:15px;
+    line-height:1.55;
+}
+@keyframes success-pop{
+    0%{transform:scale(.7);opacity:0}
+    100%{transform:scale(1);opacity:1}
+}
+@keyframes success-draw{
+    0%{transform:rotate(45deg) scale(0);opacity:0}
+    100%{transform:rotate(45deg) scale(1);opacity:1}
+}
+.event-modal{
+    width:min(100%, 760px);
+    max-height:calc(100vh - 36px);
+    overflow:auto;
+    background:#fff;
+    border-radius:12px;
+    box-shadow:0 28px 70px rgba(15,23,42,.28);
+}
+.modal-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:16px;
+    padding:20px 22px 0;
+}
+.modal-close{
+    width:38px;
+    height:38px;
+    flex:0 0 38px;
+    padding:0;
+    border-radius:50%;
+    background:#f2f4f7;
+    color:#344054;
+    font-size:20px;
+    box-shadow:none;
+}
+.modal-body{
+    padding:18px 22px 22px;
+}
 .event-card{
-    margin-top:22px;
-    padding-top:22px;
-    border-top:1px solid var(--line);
+    margin:0;
+    padding:0;
+    border-top:none;
 }
 .event-title{
     margin:0 0 8px;
@@ -435,6 +575,7 @@ button{
 .feedback-form{
     border-top:1px solid var(--line);
     background:#fff;
+    max-width:100%;
 }
 .form-head{
     padding:16px 24px;
@@ -446,10 +587,12 @@ button{
     margin:0;
     font-size:20px;
     line-height:1.2;
+    overflow-wrap:anywhere;
 }
 .form-head p{
     margin:5px 0 0;
     font-weight:800;
+    overflow-wrap:anywhere;
 }
 .form-section{
     padding:20px 24px;
@@ -468,11 +611,14 @@ button{
     background:#fbfcff;
     line-height:1.55;
     font-size:14px;
+    max-width:100%;
 }
 .check-line{
-    display:flex;
+    display:grid;
+    grid-template-columns:18px minmax(0,1fr);
     gap:10px;
     align-items:flex-start;
+    max-width:100%;
 }
 .check-line input{
     width:18px;
@@ -480,6 +626,10 @@ button{
     flex:0 0 18px;
     margin-top:2px;
     accent-color:var(--primary);
+}
+.check-line span{
+    min-width:0;
+    overflow-wrap:anywhere;
 }
 .form-grid{
     display:grid;
@@ -499,12 +649,16 @@ button{
     display:inline-flex;
     align-items:center;
     gap:7px;
+    min-width:0;
+    max-width:100%;
     min-height:34px;
     padding:7px 10px;
     border:1px solid var(--line);
     border-radius:8px;
     background:#fff;
     font-weight:600;
+    white-space:normal;
+    overflow-wrap:anywhere;
 }
 .choice input{
     width:16px;
@@ -523,6 +677,13 @@ button{
 .cc-question p{
     margin:0;
     font-weight:700;
+}
+.rating-swipe-hint{
+    display:none;
+    margin:0 0 10px;
+    color:var(--primary);
+    font-size:13px;
+    font-weight:800;
 }
 .rating-wrap{
     width:100%;
@@ -592,6 +753,12 @@ button{
     display:block;
     font-weight:800;
 }
+.rating-emoji{
+    display:block;
+    margin-bottom:4px;
+    font-size:26px;
+    line-height:1;
+}
 .rating-note{
     display:block;
     margin-top:2px;
@@ -611,27 +778,21 @@ button{
     padding:14px 18px;
     font-size:15px;
 }
-.thank-you{
-    margin-top:14px;
-    padding:10px;
-    border-radius:8px;
-    background:#8ed65b;
-    color:#071b02;
-    text-align:center;
-    font-weight:900;
-}
 .theme-dark body{
     background:#0b0b0b;
     color:#ededed;
 }
 .theme-dark .panel,
 .theme-dark .feedback-form,
+.theme-dark .success-modal,
+.theme-dark .event-modal,
 .theme-dark .rating-table,
 .theme-dark .choice{
     background:#111;
     border-color:#2d2d2d;
 }
 .theme-dark h1,
+.theme-dark .success-title,
 .theme-dark .event-title,
 .theme-dark .section-title,
 .theme-dark label,
@@ -650,43 +811,123 @@ button{
     border-top-color:#2d2d2d;
 }
 .theme-dark .meta-item,
+.theme-dark .logo-panel,
 .theme-dark .consent-box,
 .theme-dark .na-row td{
     background:#161616;
     border-color:#2d2d2d;
 }
+.theme-dark .modal-close{
+    background:#1f1f1f;
+    color:#ededed;
+}
 .theme-dark .rating-table th{
     background:#182513;
     color:#dff7d1;
 }
+.theme-dark .success-copy{
+    color:#b8b8b8;
+}
 @media (max-width:768px){
     body{background:#fff}
-    .container{padding:18px 14px 100px}
+    .container{
+        width:100%;
+        max-width:100%;
+        padding:12px 12px 100px;
+        overflow-x:hidden;
+    }
     .panel{
         border:none;
         border-radius:0;
         box-shadow:none;
-        overflow:visible;
+        overflow:hidden;
     }
-    .intro,
-    .form-section,
-    .submit-area{
+    .intro{
         padding-left:0;
         padding-right:0;
     }
+    .feedback-form{
+        width:100%;
+        overflow:hidden;
+    }
     h1{font-size:25px}
+    .code-entry,
     .code-form,
     .event-meta,
     .form-grid{
         grid-template-columns:1fr;
     }
+    .code-entry{
+        min-height:auto;
+    }
+    .logo-panel{
+        min-height:360px;
+        border-right:none;
+        border-bottom:none;
+        padding:0;
+    }
+    .logo-panel img{
+        max-height:360px;
+    }
+    .code-side{
+        padding:24px 0;
+    }
     .code-form button{width:100%}
     input,
     textarea{font-size:16px}
     .form-head{
-        margin-left:-14px;
-        margin-right:-14px;
+        margin:0;
+        padding:16px 16px 16px 64px;
         border-radius:0;
+        text-align:left;
+    }
+    .form-head h2{
+        font-size:clamp(18px, 5.7vw, 22px);
+        line-height:1.15;
+    }
+    .form-head p{
+        font-size:clamp(14px, 4.4vw, 16px);
+        line-height:1.35;
+    }
+    .form-section,
+    .submit-area{
+        padding:18px 16px;
+    }
+    .success-modal{
+        padding:28px 22px 24px;
+    }
+    .consent-box{
+        padding:12px;
+    }
+    .check-line{
+        gap:9px;
+    }
+    .option-row{
+        display:grid;
+        grid-template-columns:1fr;
+        gap:8px;
+    }
+    .choice{
+        width:100%;
+        align-items:flex-start;
+        padding:10px 12px;
+    }
+    .choice input{
+        flex:0 0 16px;
+        margin-top:1px;
+    }
+    .rating-wrap{
+        margin-left:0;
+        margin-right:0;
+        max-width:100%;
+    }
+    .rating-swipe-hint{
+        display:block;
+    }
+    .section-title,
+    .form-field label,
+    .cc-question p{
+        overflow-wrap:anywhere;
     }
 }
 </style>
@@ -698,78 +939,61 @@ button{
 
 <div class="container">
     <div class="panel">
+        <?php if (!$showEvaluationForm): ?>
         <div class="intro">
-            <p class="kicker">Event Feedback</p>
-            <h1>Event Evaluation</h1>
-            <p class="subtitle">Enter the event code. If the event is scheduled today or is still within the 24-hour feedback period, the evaluation form will open.</p>
-
-            <form method="POST" class="code-form">
-                <div class="form-field">
-                    <label for="event_code">Event Code</label>
-                    <input
-                        type="text"
-                        id="event_code"
-                        name="event_code"
-                        value="<?php echo htmlspecialchars($eventCode); ?>"
-                        placeholder="Example: EVT0010"
-                        required
-                    >
+            <div class="code-entry">
+                <div class="logo-panel">
+                    <img src="assets/images/nclogo.png" alt="Negosyo Center logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                    <span class="logo-fallback" style="display:none;">Negosyo Center Logo</span>
                 </div>
-                <button type="submit" name="find_event">Evaluate</button>
-            </form>
+                <div class="code-side">
+                    <div class="code-copy">
+                        <p class="kicker">Event Feedback</p>
+                        <h1>Event Evaluation</h1>
+                        <p class="subtitle">Enter the event code. If the event is scheduled today or is still within the 24-hour feedback period, the evaluation form will open.</p>
+                    </div>
+                    <form method="POST" class="code-form">
+                        <div class="form-field">
+                            <label for="event_code">Event Code</label>
+                            <input
+                                type="text"
+                                id="event_code"
+                                name="event_code"
+                                value="<?php echo htmlspecialchars($eventCode); ?>"
+                                placeholder="Example: EVT0010"
+                                required
+                            >
+                        </div>
+                        <button type="submit" name="find_event">Evaluate</button>
+                    </form>
+                </div>
+            </div>
 
-            <?php if ($error !== ""): ?>
+            <?php if ($error !== "" && !$event): ?>
                 <div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
 
-            <?php if ($success !== ""): ?>
-                <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
-            <?php endif; ?>
+                <?php if ($success !== ""): ?>
+                    <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
 
-            <?php if ($event): ?>
-                <div class="event-card">
-                    <h2 class="event-title"><?php echo htmlspecialchars($event['title']); ?></h2>
-                    <div class="event-meta">
-                        <div class="meta-item">
-                            <span class="meta-label">Event Code</span>
-                            <span class="meta-value"><?php echo htmlspecialchars($event['event_code'] ?: ('EVT' . str_pad((string) $event['id'], 4, '0', STR_PAD_LEFT))); ?></span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="meta-label">Evaluation Window</span>
-                            <span class="meta-value">
-                                <?php if ($windowStart && $windowExpires): ?>
-                                    <?php echo htmlspecialchars($windowStart->format("M j, Y g:i A")); ?> to <?php echo htmlspecialchars($windowExpires->format("M j, Y g:i A")); ?>
-                                <?php else: ?>
-                                    Not available
-                                <?php endif; ?>
-                            </span>
-                        </div>
-                        <?php if (!empty($event['speaker'])): ?>
-                            <div class="meta-item">
-                                <span class="meta-label">Speaker</span>
-                                <span class="meta-value"><?php echo htmlspecialchars($event['speaker']); ?></span>
-                            </div>
-                        <?php endif; ?>
-                        <?php if (!empty($event['mode_of_delivery'])): ?>
-                            <div class="meta-item">
-                                <span class="meta-label">Mode</span>
-                                <span class="meta-value"><?php echo htmlspecialchars($event['mode_of_delivery']); ?></span>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            <?php endif; ?>
-        </div>
-
-        <?php if ($event && $canEvaluate && !$alreadyEvaluated && $success === ""): ?>
+        <?php if ($showEvaluationForm): ?>
             <form method="POST" class="feedback-form">
                 <input type="hidden" name="event_id" value="<?php echo (int) $event['id']; ?>">
                 <input type="hidden" name="event_code" value="<?php echo htmlspecialchars($eventCode); ?>">
 
                 <div class="form-head">
                     <h2>Client Satisfaction Feedback Form</h2>
-                    <p>Consumer Advocacy | Training | Seminar | Conference</p>
+                    <p><?php echo htmlspecialchars($event['title']); ?></p>
                 </div>
+
+                <?php if ($error !== ""): ?>
+                    <div class="form-section">
+                        <div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div>
+                    </div>
+                <?php endif; ?>
 
                 <div class="form-section">
                     <div class="consent-box">
@@ -863,16 +1087,17 @@ button{
                     <p class="section-title">Part II. Service Improvement Feedback</p>
                     <p class="subtitle">For each criterion below, mark one rating. If you select Neither, Disagree, or Strongly Disagree, please explain in Part III.</p>
 
+                    <p class="rating-swipe-hint">Please Swipe to Rate</p>
                     <div class="rating-wrap">
                         <table class="rating-table">
                             <thead>
                                 <tr>
                                     <th>Criteria for Rating</th>
-                                    <th><span class="rating-label">Strongly Agree</span><span class="rating-note">5</span></th>
-                                    <th><span class="rating-label">Agree</span><span class="rating-note">4</span></th>
-                                    <th><span class="rating-label">Neither</span><span class="rating-note">3</span></th>
-                                    <th><span class="rating-label">Disagree</span><span class="rating-note">2</span></th>
-                                    <th><span class="rating-label">Strongly Disagree</span><span class="rating-note">1</span></th>
+                                    <th><span class="rating-emoji">😁</span><span class="rating-label">Strongly Agree</span><span class="rating-note">5</span></th>
+                                    <th><span class="rating-emoji">🙂</span><span class="rating-label">Agree</span><span class="rating-note">4</span></th>
+                                    <th><span class="rating-emoji">😐</span><span class="rating-label">Neither</span><span class="rating-note">3</span></th>
+                                    <th><span class="rating-emoji">🙁</span><span class="rating-label">Disagree</span><span class="rating-note">2</span></th>
+                                    <th><span class="rating-emoji">😠</span><span class="rating-label">Strongly Disagree</span><span class="rating-note">1</span></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -915,12 +1140,82 @@ button{
 
                 <div class="submit-area">
                     <button type="submit" name="submit_evaluation" class="submit-btn">Submit Feedback</button>
-                    <div class="thank-you">Thank you!</div>
                 </div>
             </form>
         <?php endif; ?>
     </div>
 </div>
+
+<?php if ($success !== ""): ?>
+<div class="modal-overlay show" id="successModal">
+    <div class="success-modal" role="dialog" aria-modal="true" aria-labelledby="successTitle">
+        <div class="success-check" aria-hidden="true"></div>
+        <h2 class="success-title" id="successTitle">Thank you!</h2>
+        <p class="success-copy">Your feedback was submitted successfully.</p>
+    </div>
+</div>
+<?php elseif ($event && !$showEvaluationForm): ?>
+<div class="modal-overlay show" id="eventInfoModal">
+    <div class="event-modal">
+        <div class="modal-head">
+            <h2 class="event-title"><?php echo htmlspecialchars($event['title']); ?></h2>
+            <button type="button" class="modal-close" onclick="closeEventInfo()" aria-label="Close event details">&times;</button>
+        </div>
+        <div class="modal-body">
+            <?php if ($error !== ""): ?>
+                <div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div>
+            <?php endif; ?>
+
+            <div class="event-card">
+                <div class="event-meta">
+                    <div class="meta-item">
+                        <span class="meta-label">Event Code</span>
+                        <span class="meta-value"><?php echo htmlspecialchars($event['event_code'] ?: ('EVT' . str_pad((string) $event['id'], 4, '0', STR_PAD_LEFT))); ?></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Evaluation Window</span>
+                        <span class="meta-value">
+                            <?php if ($windowStart && $windowExpires): ?>
+                                <?php echo htmlspecialchars($windowStart->format("M j, Y g:i A")); ?> to <?php echo htmlspecialchars($windowExpires->format("M j, Y g:i A")); ?>
+                            <?php else: ?>
+                                Not available
+                            <?php endif; ?>
+                        </span>
+                    </div>
+                    <?php if (!empty($event['speaker'])): ?>
+                        <div class="meta-item">
+                            <span class="meta-label">Speaker</span>
+                            <span class="meta-value"><?php echo htmlspecialchars($event['speaker']); ?></span>
+                        </div>
+                    <?php endif; ?>
+                    <?php if (!empty($event['mode_of_delivery'])): ?>
+                        <div class="meta-item">
+                            <span class="meta-label">Mode</span>
+                            <span class="meta-value"><?php echo htmlspecialchars($event['mode_of_delivery']); ?></span>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<script>
+function closeEventInfo(){
+    const modal = document.getElementById("eventInfoModal");
+    if(modal){
+        modal.classList.remove("show");
+    }
+}
+
+document.addEventListener("click", function(event){
+    const modal = document.getElementById("eventInfoModal");
+    if(modal && event.target === modal){
+        closeEventInfo();
+    }
+});
+</script>
 
 <?php include 'bottom_nav.php'; ?>
 </body>
