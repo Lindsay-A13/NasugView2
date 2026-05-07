@@ -92,6 +92,7 @@ function ensureEventEvaluationsTable(mysqli $conn): void
 function ensureEventEvaluationFormColumns(mysqli $conn): void
 {
     $requiredColumns = [
+        "event_code" => "ALTER TABLE event_evaluations ADD COLUMN event_code VARCHAR(30) NULL AFTER event_id",
         "full_name" => "ALTER TABLE event_evaluations ADD COLUMN full_name VARCHAR(255) NULL AFTER account_type",
         "email" => "ALTER TABLE event_evaluations ADD COLUMN email VARCHAR(150) NULL AFTER full_name",
         "contact_number" => "ALTER TABLE event_evaluations ADD COLUMN contact_number VARCHAR(30) NULL AFTER email",
