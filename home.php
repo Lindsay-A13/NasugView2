@@ -344,6 +344,62 @@ $featuredStmt = $conn->prepare("
 $featuredStmt->execute();
 $featured = $featuredStmt->get_result();
 
+$promoCodes = [
+    [
+        "code" => "NASUG10",
+        "title" => "10% off local finds",
+        "description" => "Use on eligible shops and services.",
+        "meta" => "Min. spend PHP 299",
+        "icon" => "fa-ticket"
+    ],
+    [
+        "code" => "VIEW50",
+        "title" => "PHP 50 welcome deal",
+        "description" => "Save on your next booking or order.",
+        "meta" => "New users",
+        "icon" => "fa-gift"
+    ],
+    [
+        "code" => "TOPRATED",
+        "title" => "Rated picks reward",
+        "description" => "Try trusted businesses with a bonus.",
+        "meta" => "Top rated partners",
+        "icon" => "fa-star"
+    ]
+];
+
+/* ================= NEAR EVENTS ================= */
+
+$nearEvents = [];
+$nearEventsStmt = $conn->prepare("
+    SELECT
+        id,
+        event_code,
+        title,
+        start_date_and_time
+    FROM events
+    WHERE start_date_and_time >= NOW()
+    ORDER BY start_date_and_time ASC
+    LIMIT 2
+");
+
+if($nearEventsStmt){
+    $nearEventsStmt->execute();
+    $nearEventsResult = $nearEventsStmt->get_result();
+
+    while($event = $nearEventsResult->fetch_assoc()){
+        $eventTime = strtotime((string) ($event['start_date_and_time'] ?? ''));
+        $nearEvents[] = [
+            "id" => (int) $event['id'],
+            "code" => (string) ($event['event_code'] ?? ''),
+            "title" => (string) ($event['title'] ?? 'Upcoming event'),
+            "date" => $eventTime ? date("M j", $eventTime) : "Soon"
+        ];
+    }
+
+    $nearEventsStmt->close();
+}
+
 /* ================= CURRENT USER ================= */
 
 $current_user_id = $_SESSION['user_id'] ?? 0;
@@ -451,11 +507,11 @@ $reviews = $reviewStmt->get_result();
 <title>NasugView – Home</title>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-<link rel="stylesheet" href="assets/css/home.css">
 <link rel="stylesheet" href="assets/css/responsive.css">
 
 
 <?php require_once "config/theme.php"; render_theme_head(); ?>
+<link rel="stylesheet" href="assets/css/home.css?v=20260512-near-events">
 </head>
 
 <body>
@@ -477,14 +533,108 @@ $reviews = $reviewStmt->get_result();
 
 </div>
 
-<div class="welcome">
-Welcome, <?php echo htmlspecialchars($_SESSION['username']); ?>!
+<section class="home-hero">
+<div class="hero-copy">
+<span class="hero-eyebrow">Nasugbu local guide</span>
+<h1>Welcome, <?php echo htmlspecialchars($_SESSION['username']); ?>!</h1>
+<p>Find trusted businesses, collect deals, and explore top-rated local favorites in one place.</p>
+<div class="hero-actions">
+<a href="marketplace.php" class="hero-primary"><i class="fa fa-store"></i> Explore Shops</a>
+<a href="cart.php" class="hero-secondary"><i class="fa fa-cart-shopping"></i> View Cart</a>
+</div>
+</div>
+<div class="hero-deals" aria-label="Featured benefits">
+<div class="hero-deal-card">
+<i class="fa fa-ticket"></i>
+<strong>3</strong>
+<span>Active codes</span>
+</div>
+<div class="hero-near-events-card">
+<div class="hero-near-events-title">
+<i class="fa fa-calendar-day"></i>
+<strong>Near Events:</strong>
+</div>
+<div class="hero-near-events-list">
+<?php if(count($nearEvents) > 0): ?>
+<?php foreach($nearEvents as $event): ?>
+<?php
+$eventUrl = trim($event['code']) !== ""
+    ? "registration.php?event_code=".urlencode($event['code'])
+    : "calendar.php";
+?>
+<a href="<?php echo htmlspecialchars($eventUrl); ?>" class="hero-near-event-item">
+<span class="hero-near-event-date"><?php echo htmlspecialchars($event['date']); ?></span>
+<span class="hero-near-event-name"><?php echo htmlspecialchars($event['title']); ?></span>
+</a>
+<?php endforeach; ?>
+<?php else: ?>
+<a href="calendar.php" class="hero-near-event-item">
+<span class="hero-near-event-date">Soon</span>
+<span class="hero-near-event-name">View calendar</span>
+</a>
+<?php endif; ?>
+</div>
+</div>
+</div>
+</section>
+
+<section class="promo-section" aria-labelledby="promo-title">
+<div class="section-heading">
+<div>
+<div class="section-kicker">Limited deals</div>
+<h2 id="promo-title">Promo Codes</h2>
+</div>
+<a href="marketplace.php" class="section-link">Browse deals</a>
 </div>
 
-<div class="section-title">Top Rated</div>
+<div class="promo-spotlight">
+<div class="promo-spotlight-copy">
+<span>NasugView Deals</span>
+<strong>Save more on local favorites</strong>
+<small>Collect codes, discover trusted places, and enjoy better value around Nasugbu.</small>
+</div>
+<div class="promo-spotlight-art" aria-hidden="true">
+<span class="deal-bubble deal-bubble-main"><i class="fa fa-percent"></i></span>
+<span class="deal-bubble deal-bubble-ticket"><i class="fa fa-ticket"></i></span>
+<span class="deal-bubble deal-bubble-star"><i class="fa fa-star"></i></span>
+</div>
+</div>
 
-<div class="horizontal">
+<div class="promo-rail">
+<?php foreach($promoCodes as $promo): ?>
+<article class="promo-card">
+<div class="promo-icon">
+<i class="fa <?php echo htmlspecialchars($promo['icon']); ?>"></i>
+</div>
+<div class="promo-copy">
+<strong><?php echo htmlspecialchars($promo['title']); ?></strong>
+<span><?php echo htmlspecialchars($promo['description']); ?></span>
+<small><?php echo htmlspecialchars($promo['meta']); ?></small>
+</div>
+<div class="promo-code" aria-label="Promo code <?php echo htmlspecialchars($promo['code']); ?>">
+<?php echo htmlspecialchars($promo['code']); ?>
+</div>
+</article>
+<?php endforeach; ?>
+</div>
+</section>
 
+<div class="section-heading section-heading-spaced">
+<div>
+<div class="section-kicker">Trusted by reviewers</div>
+<h2>Top Rated</h2>
+</div>
+<a href="marketplace.php" class="section-link">See all</a>
+</div>
+
+<div class="horizontal business-strip">
+
+<?php if($topRated->num_rows === 0): ?>
+<div class="empty-card">
+<i class="fa fa-star"></i>
+<span>No top rated businesses yet.</span>
+</div>
+<?php endif; ?>
 <?php while($row = $topRated->fetch_assoc()): ?>
 
 <?php
@@ -500,17 +650,24 @@ if(!empty($row['business_photo'])){
 }
 ?>
 
-<a href="businessdetails.php?id=<?php echo (int) $row['b_id']; ?>" class="featured-card">
-<img src="<?php echo $photo; ?>">
+<a href="businessdetails.php?id=<?php echo (int) $row['b_id']; ?>" class="featured-card compact-card">
+<div class="card-image-wrap">
+<img src="<?php echo $photo; ?>" alt="<?php echo htmlspecialchars($row['business_name']); ?>">
+<span class="card-badge">Top Rated</span>
+</div>
 
 <div class="card-info">
-
-<div class="card-row">
 
 <div class="card-name">
 <?php echo htmlspecialchars($row['business_name']); ?>
 </div>
 
+<div class="location">
+<i class="fa fa-location-dot"></i>
+<span><?php echo htmlspecialchars($row['address']); ?></span>
+</div>
+
+<div class="card-row">
 <div class="rating">
 <div class="rating-stars" aria-label="<?php echo number_format((float) ($row['avg_rating'] ?? 0), 1); ?> out of 5 stars">
 <?php for($i = 1; $i <= 5; $i++): ?>
@@ -519,11 +676,7 @@ if(!empty($row['business_photo'])){
 </div>
 <span><?php echo number_format((float) ($row['avg_rating'] ?? 0), 1); ?></span>
 </div>
-
-</div>
-
-<div class="location">
-<?php echo htmlspecialchars($row['address']); ?>
+<span class="review-count"><?php echo (int) $row['total_reviews']; ?> reviews</span>
 </div>
 
 </div>
@@ -533,10 +686,22 @@ if(!empty($row['business_photo'])){
 
 </div>
 
-<div class="section-title">Check this out!</div>
+<div class="section-heading section-heading-spaced">
+<div>
+<div class="section-kicker">Fresh places to explore</div>
+<h2>Recommended for You</h2>
+</div>
+<a href="marketplace.php" class="section-link">Explore</a>
+</div>
 
-<div class="horizontal">
+<div class="horizontal business-strip">
 
+<?php if($featured->num_rows === 0): ?>
+<div class="empty-card">
+<i class="fa fa-store"></i>
+<span>No recommendations available yet.</span>
+</div>
+<?php endif; ?>
 <?php while($row = $featured->fetch_assoc()): ?>
 
 <?php
@@ -552,17 +717,24 @@ if(!empty($row['business_photo'])){
 }
 ?>
 
-<a href="businessdetails.php?id=<?php echo (int) $row['b_id']; ?>" class="featured-card">
-<img src="<?php echo $photo; ?>">
+<a href="businessdetails.php?id=<?php echo (int) $row['b_id']; ?>" class="featured-card compact-card">
+<div class="card-image-wrap">
+<img src="<?php echo $photo; ?>" alt="<?php echo htmlspecialchars($row['business_name']); ?>">
+<span class="card-badge card-badge-soft">Discover</span>
+</div>
 
 <div class="card-info">
-
-<div class="card-row">
 
 <div class="card-name">
 <?php echo htmlspecialchars($row['business_name']); ?>
 </div>
 
+<div class="location">
+<i class="fa fa-location-dot"></i>
+<span><?php echo htmlspecialchars($row['address']); ?></span>
+</div>
+
+<div class="card-row">
 <div class="rating">
 <div class="rating-stars" aria-label="<?php echo number_format((float) ($row['avg_rating'] ?? 0), 1); ?> out of 5 stars">
 <?php for($i = 1; $i <= 5; $i++): ?>
@@ -571,11 +743,7 @@ if(!empty($row['business_photo'])){
 </div>
 <span><?php echo number_format((float) ($row['avg_rating'] ?? 0), 1); ?></span>
 </div>
-
-</div>
-
-<div class="location">
-<?php echo htmlspecialchars($row['address']); ?>
+<span class="review-count"><?php echo (int) $row['total_reviews']; ?> reviews</span>
 </div>
 
 </div>
