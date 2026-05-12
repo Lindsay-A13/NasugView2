@@ -519,10 +519,10 @@ $reviews = $reviewStmt->get_result();
 <div class="container">
 
 <div class="topbar">
-<div class="search-bar">
+<a href="marketplace.php" class="search-bar">
 <span>Search for ...</span>
 <i class="fa fa-search"></i>
-</div>
+</a>
 
 <a href="cart.php" class="cart-btn">
 <i class="fa fa-cart-shopping"></i>
@@ -753,7 +753,12 @@ if(!empty($row['business_photo'])){
 
 </div>
 
-<div class="section-title">Latest Reviews</div>
+<div class="section-heading section-heading-spaced">
+<div>
+<div class="section-kicker">Community updates</div>
+<h2>Latest Reviews</h2>
+</div>
+</div>
 
 <?php while($review = $reviews->fetch_assoc()): ?>
 
