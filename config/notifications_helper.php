@@ -70,10 +70,16 @@ function notificationSnippet(string $text, int $limit = 70): string
 function syncEventNotifications(mysqli $conn, int $userId, string $accountType): void
 {
     $stmt = $conn->prepare("
-        SELECT id, title, start_date_and_time
+        SELECT
+            id,
+            title,
+            start_date_and_time,
+            DATEDIFF(DATE(start_date_and_time), CURDATE()) AS days_until
         FROM events
         WHERE status = 'Active'
-        ORDER BY id DESC
+          AND start_date_and_time >= NOW()
+          AND start_date_and_time < DATE_ADD(NOW(), INTERVAL 4 DAY)
+        ORDER BY start_date_and_time ASC
         LIMIT 10
     ");
 
@@ -85,13 +91,27 @@ function syncEventNotifications(mysqli $conn, int $userId, string $accountType):
     $result = $stmt->get_result();
 
     while ($row = $result->fetch_assoc()) {
+        $daysUntil = (int) ($row['days_until'] ?? 0);
+        $eventTitle = (string) ($row['title'] ?? 'Upcoming event');
+        $schedule = date("M d, Y h:i A", strtotime((string) ($row['start_date_and_time'] ?? '')));
+
         insertNotification(
             $conn,
             $userId,
             $accountType,
-            "New Event",
-            "New event: " . $row['title'] . ". Schedule: " . $row['start_date_and_time'] . "."
+            "Upcoming Event",
+            "Upcoming event within 3 days: " . $eventTitle . ". Schedule: " . $schedule . "."
         );
+
+        if ($daysUntil === 1) {
+            insertNotification(
+                $conn,
+                $userId,
+                $accountType,
+                "Event Tomorrow",
+                "Reminder: " . $eventTitle . " is tomorrow. Schedule: " . $schedule . "."
+            );
+        }
     }
 
     $stmt->close();
@@ -229,14 +249,14 @@ function syncNotificationsForUser(mysqli $conn, int $userId, string $accountType
 function allowedNotificationTitles(string $accountType): array
 {
     if ($accountType === "business_owner") {
-        return ["New Event", "New Review", "New Order"];
+        return ["New Event", "Upcoming Event", "Event Tomorrow", "New Review", "New Order"];
     }
 
     if ($accountType === "consumer") {
-        return ["New Event", "Order Status Updated"];
+        return ["New Event", "Upcoming Event", "Event Tomorrow", "Order Status Updated"];
     }
 
-    return ["New Event"];
+    return ["New Event", "Upcoming Event", "Event Tomorrow"];
 }
 
 function unreadNotificationCount(mysqli $conn, int $userId, string $accountType): int
@@ -272,7 +292,7 @@ function unreadNotificationCount(mysqli $conn, int $userId, string $accountType)
 
 function notificationLink(string $title, string $accountType): string
 {
-    if ($title === "New Event") {
+    if ($title === "New Event" || $title === "Upcoming Event" || $title === "Event Tomorrow") {
         return "calendar.php";
     }
 

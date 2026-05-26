@@ -2,14 +2,119 @@
 session_start();
 require_once "config/db.php";
 
-/* LOAD BUSINESS LINES (FIX) */
+function ensureBusinessPermitQrDataTable(mysqli $conn): void {
+    $conn->query("
+        CREATE TABLE IF NOT EXISTS business_permit_qr_data (
+            qr_data_id INT AUTO_INCREMENT PRIMARY KEY,
+            owner_id INT NOT NULL,
+            permit_year VARCHAR(4) NOT NULL,
+            permit_number VARCHAR(120) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_owner_qr_data (owner_id),
+            UNIQUE KEY uniq_permit_year_number (permit_year, permit_number),
+            CONSTRAINT fk_business_permit_qr_data_owner
+                FOREIGN KEY (owner_id) REFERENCES business_owner(b_id)
+                ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $index = $conn->query("
+        SHOW INDEX FROM business_permit_qr_data
+        WHERE Key_name = 'uniq_permit_year_number'
+    ");
+
+    if($index && $index->num_rows === 0){
+        $conn->query("
+            ALTER TABLE business_permit_qr_data
+            ADD UNIQUE KEY uniq_permit_year_number (permit_year, permit_number)
+        ");
+    }
+}
+
+function oldInput(string $key, string $default = ''): string {
+    return isset($_POST[$key]) ? trim((string) $_POST[$key]) : $default;
+}
+
+function validatePermitQrData(string $permitYear, string $permitNumber, string $permitIssuedOn): array {
+    if(!preg_match('/^20\d{2}$/', $permitYear)){
+        return [false, "Business permit QR code must include a valid permit year."];
+    }
+
+    if(!preg_match('/^[A-Za-z0-9-]+$/', $permitNumber)){
+        return [false, "Business permit QR code must include a valid permit number."];
+    }
+
+    $issuedOn = DateTime::createFromFormat('Y-m-d', $permitIssuedOn);
+    $dateErrors = DateTime::getLastErrors();
+
+    if(
+        !$issuedOn ||
+        ($dateErrors !== false && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0))
+    ){
+        return [false, "Business permit QR code must include a valid issued-on date."];
+    }
+
+    $currentYear = (new DateTime())->format('Y');
+
+    if($permitYear !== $currentYear || $issuedOn->format('Y') !== $currentYear){
+        return [false, "This business permit is not valid for {$currentYear}. Please upload the current year's permit."];
+    }
+
+    return [true, null];
+}
+
+function validateBusinessPermitUpload(array $file): array {
+    if(
+        !isset($file['error'], $file['tmp_name'], $file['name']) ||
+        $file['error'] !== UPLOAD_ERR_OK
+    ){
+        return [false, "Business permit upload failed."];
+    }
+
+    $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+
+    if(!in_array($extension, $allowedExtensions, true)){
+        return [false, "Business permit must be a JPG, PNG, or WEBP image."];
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo ? finfo_file($finfo, $file['tmp_name']) : '';
+    if($finfo){
+        finfo_close($finfo);
+    }
+
+    $allowedMimeTypes = [
+        'image/jpeg',
+        'image/png',
+        'image/webp'
+    ];
+
+    if(!in_array($mimeType, $allowedMimeTypes, true)){
+        return [false, "Only JPG, PNG, or WEBP images are allowed for the business permit."];
+    }
+
+    return [true, [
+        'extension' => $extension,
+        'mime_type' => $mimeType,
+        'file_type' => 'image'
+    ]];
+}
+
+ensureBusinessPermitQrDataTable($conn);
+
 $lines = $conn->query("
     SELECT line_id, line_name
     FROM business_lines
     ORDER BY line_name ASC
 ");
 
-/* VARIABLES */
+$cities = $conn->query("
+    SELECT id, name
+    FROM cities
+    ORDER BY name ASC
+");
+
 $login_error = '';
 $register_error = '';
 $register_success = '';
@@ -18,32 +123,27 @@ $email_value = '';
 $password_value = '';
 $remember = false;
 
-/* REMEMBER ME */
 if(isset($_COOKIE['remember_email']) && isset($_COOKIE['remember_password'])){
     $email_value = $_COOKIE['remember_email'];
     $password_value = $_COOKIE['remember_password'];
     $remember = true;
 }
 
-/* ================= LOGIN ================= */
 if(isset($_POST['login'])){
-
     $login_input = trim($_POST['email']);
     $password_input = trim($_POST['password']);
     $remember_me = isset($_POST['remember']);
 
     if(empty($login_input) || empty($password_input)){
         $login_error = "Please provide email and password.";
-    }
-    else{
-
+    } else {
         $user = null;
         $account_type = "";
 
         $stmt = $conn->prepare("
             SELECT c_id AS id, username, password, email
             FROM consumers
-            WHERE email=? OR username=?
+            WHERE email = ? OR username = ?
         ");
         $stmt->bind_param("ss", $login_input, $login_input);
         $stmt->execute();
@@ -59,7 +159,7 @@ if(isset($_POST['login'])){
             $stmt = $conn->prepare("
                 SELECT b_id AS id, username, password, email
                 FROM business_owner
-                WHERE email=? OR username=?
+                WHERE email = ? OR username = ?
             ");
             $stmt->bind_param("ss", $login_input, $login_input);
             $stmt->execute();
@@ -73,46 +173,50 @@ if(isset($_POST['login'])){
         }
 
         if($user && password_verify($password_input, $user['password'])){
-
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['account_type'] = $account_type;
 
             if($remember_me){
-                setcookie("remember_email", $login_input, time()+60*60*24*30, "/");
-                setcookie("remember_password", $password_input, time()+60*60*24*30, "/");
-            }else{
-                setcookie("remember_email", "", time()-3600, "/");
-                setcookie("remember_password", "", time()-3600, "/");
+                setcookie("remember_email", $login_input, time() + 60 * 60 * 24 * 30, "/");
+                setcookie("remember_password", $password_input, time() + 60 * 60 * 24 * 30, "/");
+            } else {
+                setcookie("remember_email", "", time() - 3600, "/");
+                setcookie("remember_password", "", time() - 3600, "/");
             }
 
             header("Location: home.php");
             exit();
         }
-        else{
-            $login_error = "Invalid email/username or password.";
-        }
+
+        $login_error = "Invalid email/username or password.";
     }
 }
 
-/* ================= REGISTER ================= */
 if(isset($_POST['register'])){
-
     $account_type  = trim($_POST['account_type']);
     $username      = trim($_POST['username']);
     $email         = trim($_POST['email']);
     $password      = trim($_POST['password']);
     $first_name    = trim($_POST['first_name']);
     $last_name     = trim($_POST['last_name']);
-    $gender        = trim($_POST['gender']);
+    $sex           = trim($_POST['gender']);
     $birthday      = trim($_POST['birthday']);
-    $address       = "";
+    $municipality  = isset($_POST['municipality']) ? trim($_POST['municipality']) : "";
+    $address       = $municipality;
     $business_name = isset($_POST['business_name']) ? trim($_POST['business_name']) : "";
     $business_line = isset($_POST['business_line']) ? trim($_POST['business_line']) : "";
+    $permit_year = isset($_POST['permit_year']) ? trim($_POST['permit_year']) : "";
+    $permit_number = isset($_POST['permit_number']) ? trim($_POST['permit_number']) : "";
+    $permit_issued_on = isset($_POST['permit_issued_on']) ? trim($_POST['permit_issued_on']) : "";
+    $permitUploadMeta = null;
 
     if($account_type === "consumer"){
         $business_name = null;
         $business_line = null;
+        $permit_year = null;
+        $permit_number = null;
+        $permit_issued_on = null;
     }
 
     $age = null;
@@ -123,95 +227,215 @@ if(isset($_POST['register'])){
         $age = $today->diff($birthDate)->y;
     }
 
+    if($username !== '' || $email !== ''){
+        $duplicateAccount = $conn->prepare("
+            SELECT username, email
+            FROM consumers
+            WHERE username = ? OR email = ?
+            UNION ALL
+            SELECT username, email
+            FROM business_owner
+            WHERE username = ? OR email = ?
+            LIMIT 1
+        ");
+
+        $duplicateAccount->bind_param("ssss", $username, $email, $username, $email);
+        $duplicateAccount->execute();
+        $duplicateAccountResult = $duplicateAccount->get_result();
+
+        if($duplicateAccountResult->num_rows > 0){
+            $existingAccount = $duplicateAccountResult->fetch_assoc();
+
+            if(strcasecmp($existingAccount['username'], $username) === 0){
+                $register_error = "Username is already taken.";
+            } elseif(strcasecmp($existingAccount['email'], $email) === 0){
+                $register_error = "Email is already registered.";
+            }
+        }
+
+        $duplicateAccount->close();
+    }
+
     if(
+        $register_error === '' &&
+        (
         empty($account_type) ||
         empty($username) ||
         empty($email) ||
         empty($password) ||
         empty($first_name) ||
         empty($last_name) ||
-        empty($gender) ||
-        empty($birthday)
+        empty($sex) ||
+        empty($birthday) ||
+        empty($municipality)
+        )
     ){
         $register_error = "All fields required.";
-    }
-    else{
+    } elseif($account_type === "business_owner" && empty($business_name)){
+        $register_error = "Store name is required for business owners.";
+    } elseif($account_type === "business_owner" && empty($business_line)){
+        $register_error = "Business line is required for business owners.";
+    } elseif($account_type === "business_owner" && empty($_FILES['business_permit']['name'])){
+        $register_error = "Business permit file is required for business owners.";
+    } elseif(
+        $account_type === "business_owner" &&
+        (empty($permit_year) || empty($permit_number) || empty($permit_issued_on))
+    ){
+        $register_error = "Please upload a clear business permit image with a readable QR code.";
+    } elseif($account_type === "business_owner"){
+        [$isQrDataValid, $qrDataError] = validatePermitQrData($permit_year, $permit_number, $permit_issued_on);
 
-        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-
-        $insert = null;
-
-        if($account_type === "consumer"){
-
-            $insert = $conn->prepare("
-                INSERT INTO consumers
-                (username,password,email,fname,lname,gender,birthday,age,address)
-                VALUES (?,?,?,?,?,?,?,?,?)
+        if(!$isQrDataValid){
+            $register_error = $qrDataError;
+        } else {
+            $duplicatePermit = $conn->prepare("
+                SELECT owner_id
+                FROM business_permit_qr_data
+                WHERE permit_year = ? AND permit_number = ?
+                LIMIT 1
             ");
+            $duplicatePermit->bind_param("ss", $permit_year, $permit_number);
+            $duplicatePermit->execute();
+            $duplicatePermitResult = $duplicatePermit->get_result();
 
-            $age = (int)$age;
-
-            $insert->bind_param(
-                "sssssssis",
-                $username,
-                $hashed_password,
-                $email,
-                $first_name,
-                $last_name,
-                $gender,
-                $birthday,
-                $age,
-                $address
-            );
-
-        }
-        elseif($account_type === "business_owner"){
-
-            $insert = $conn->prepare("
-                INSERT INTO business_owner
-                (username,password,email,fname,lname,gender,birthday,age,address,business_name,line_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            ");
-
-            $insert->bind_param(
-                "ssssssssssi",
-                $username,
-                $hashed_password,
-                $email,
-                $first_name,
-                $last_name,
-                $gender,
-                $birthday,
-                $age,
-                $address,
-                $business_name,
-                $business_line
-            );
-
-        }
-
-        if($insert){
-
-            if(!$insert->execute()){
-                die("INSERT ERROR: " . $insert->error);
+            if($duplicatePermitResult->num_rows > 0){
+                $register_error = "This business permit has already been used to register an account.";
             }
 
-            $_SESSION['user_id'] = $conn->insert_id;
+            $duplicatePermit->close();
+        }
+
+        if($register_error === ''){
+            [$isPermitValid, $permitResult] = validateBusinessPermitUpload($_FILES['business_permit']);
+
+            if(!$isPermitValid){
+                $register_error = $permitResult;
+            } else {
+                $permitUploadMeta = $permitResult;
+            }
+        }
+    }
+
+    if($register_error === ''){
+        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+        $age = (int) $age;
+        $storedPermitPath = null;
+
+        try {
+            $conn->begin_transaction();
+
+            if($account_type === "consumer"){
+                $insert = $conn->prepare("
+                    INSERT INTO consumers
+                    (username, password, email, fname, lname, gender, birthday, age, address)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+
+                $insert->bind_param(
+                    "sssssssis",
+                    $username,
+                    $hashed_password,
+                    $email,
+                    $first_name,
+                    $last_name,
+                    $sex,
+                    $birthday,
+                    $age,
+                    $address
+                );
+            } else {
+                $businessLineId = (int) $business_line;
+
+                $insert = $conn->prepare("
+                    INSERT INTO business_owner
+                    (username, password, email, fname, lname, gender, birthday, age, address, business_name, line_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+
+                $insert->bind_param(
+                    "ssssssssssi",
+                    $username,
+                    $hashed_password,
+                    $email,
+                    $first_name,
+                    $last_name,
+                    $sex,
+                    $birthday,
+                    $age,
+                    $address,
+                    $business_name,
+                    $businessLineId
+                );
+            }
+
+            if(!$insert || !$insert->execute()){
+                throw new RuntimeException("Unable to save the account.");
+            }
+
+            $newUserId = (int) $conn->insert_id;
+            $insert->close();
+
+            if($account_type === "business_owner" && $permitUploadMeta !== null){
+                $uploadDir = __DIR__ . DIRECTORY_SEPARATOR . "uploads" . DIRECTORY_SEPARATOR . "business_permits";
+
+                if(!is_dir($uploadDir) && !mkdir($uploadDir, 0777, true) && !is_dir($uploadDir)){
+                    throw new RuntimeException("Failed to create the business permit upload directory.");
+                }
+
+                $storedPermitName = "permit_" . $newUserId . "_" . time() . "." . $permitUploadMeta['extension'];
+                $storedPermitPath = $uploadDir . DIRECTORY_SEPARATOR . $storedPermitName;
+
+                if(!move_uploaded_file($_FILES['business_permit']['tmp_name'], $storedPermitPath)){
+                    throw new RuntimeException("Failed to save the uploaded business permit.");
+                }
+
+                $qrDataInsert = $conn->prepare("
+                    INSERT INTO business_permit_qr_data
+                    (owner_id, permit_year, permit_number)
+                    VALUES (?, ?, ?)
+                ");
+
+                $qrDataInsert->bind_param(
+                    "iss",
+                    $newUserId,
+                    $permit_year,
+                    $permit_number
+                );
+
+                if(!$qrDataInsert->execute()){
+                    throw new RuntimeException("Failed to save the permit QR data.");
+                }
+
+                $qrDataInsert->close();
+            }
+
+            $conn->commit();
+
+            $_SESSION['user_id'] = $newUserId;
             $_SESSION['username'] = $username;
             $_SESSION['account_type'] = $account_type;
 
-            $insert->close();
-
             header("Location: home.php");
             exit();
+        } catch (Throwable $e) {
+            $conn->rollback();
+
+            if($storedPermitPath && file_exists($storedPermitPath)){
+                unlink($storedPermitPath);
+            }
+
+            $register_error = $e->getMessage();
         }
     }
 }
 
+$selectedAccountType = oldInput('account_type');
+$selectedBusinessLine = oldInput('business_line');
+$selectedGender = oldInput('gender');
+$selectedMunicipality = oldInput('municipality');
 
 $conn->close();
 ?>
-
 
 <!DOCTYPE html>
 <html lang="en">
@@ -219,375 +443,504 @@ $conn->close();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NasugView</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/login.css">
-
 <?php require_once "config/theme.php"; render_theme_head(); ?>
+<link rel="stylesheet" href="assets/css/login.css?v=14">
 </head>
 <body>
 <?php include 'mobile_back_button.php'; ?>
 
-<div class="container" id="container">
+<div class="auth-shell<?php echo isset($_POST['register']) ? ' active' : ''; ?>" id="container">
+    <aside class="auth-intro">
+        <div class="intro-brand">
+            <p class="intro-kicker">Discover local businesses</p>
+            <h1>Welcome</h1>
+            <p class="intro-copy">Sign in or create an account to explore, connect, and support businesses in Nasugbu.</p>
+        </div>
+    </aside>
 
-<!-- Sign Up Form -->
-<div class="form-container sign-up">
-  <?php if($register_error) echo "<p style='color:red;'>$register_error</p>"; ?>
-  <?php if($register_success) echo "<p style='color:green;'>$register_success</p>"; ?>
+    <main class="auth-panel">
+        <div class="auth-tabs" role="tablist" aria-label="Account access">
+            <button
+                class="auth-tab login-tab"
+                id="loginBtn"
+                type="button"
+                role="tab"
+                aria-controls="loginFormPanel"
+            >
+                Login
+            </button>
+            <button
+                class="auth-tab register-tab"
+                id="registerBtn"
+                type="button"
+                role="tab"
+                aria-controls="registerFormPanel"
+            >
+                Sign Up
+            </button>
+        </div>
 
-  <form method="POST" class="signup-form" enctype="multipart/form-data">
+        <div class="form-container sign-up" id="registerFormPanel" role="tabpanel">
+        <?php if($register_error) echo "<p class='form-alert error'>" . htmlspecialchars($register_error) . "</p>"; ?>
+        <?php if($register_success) echo "<p class='form-alert success'>" . htmlspecialchars($register_success) . "</p>"; ?>
 
-    <img src="assets/images/logo.png" alt="NasugView Logo">
+        <form method="POST" class="signup-form" enctype="multipart/form-data">
+            <div class="auth-avatar">
+                <i class="fa-regular fa-user"></i>
+            </div>
+            <h2 class="form-title">Create Account</h2>
 
-<select name="account_type" id="account_type" class="textbox" required>
-    <option value="" disabled selected hidden>Select Account Type</option>
-    <option value="consumer">Consumer</option>
-    <option value="business_owner">Business Owner</option>
-</select>
+            <select name="account_type" id="account_type" class="textbox" required>
+                <option value="" disabled <?php echo $selectedAccountType === '' ? 'selected' : ''; ?>>Select Account Type</option>
+                <option value="consumer" <?php echo $selectedAccountType === 'consumer' ? 'selected' : ''; ?>>Consumer</option>
+                <option value="business_owner" <?php echo $selectedAccountType === 'business_owner' ? 'selected' : ''; ?>>Business Owner</option>
+            </select>
 
-    <input type="text" name="username" placeholder="Username" required />
-    <!-- BUSINESS NAME (HIDDEN BY DEFAULT) -->
-<select name="business_line" id="business_line" class="textbox business-hidden" style="display:none;"><option value="" disabled selected>Business Line</option>
+            <input type="text" name="username" placeholder="Username" value="<?php echo htmlspecialchars(oldInput('username')); ?>" required>
 
-<?php while($line = $lines->fetch_assoc()): ?>
+            <div class="business-group business-hidden" id="business_line_group">
+                <select name="business_line" id="business_line" class="textbox" disabled>
+                    <option value="" disabled <?php echo $selectedBusinessLine === '' ? 'selected' : ''; ?>>Business Line</option>
+                    <?php while($line = $lines->fetch_assoc()): ?>
+                        <option value="<?php echo (int) $line['line_id']; ?>" <?php echo $selectedBusinessLine === (string) $line['line_id'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($line['line_name']); ?>
+                        </option>
+                    <?php endwhile; ?>
+                </select>
+            </div>
 
-<option value="<?= $line['line_id']; ?>">
-<?= htmlspecialchars($line['line_name']); ?>
+            <div class="business-group business-hidden" id="business_name_group">
+                <input type="text" name="business_name" id="business_name" placeholder="Store Name" class="textbox" value="<?php echo htmlspecialchars(oldInput('business_name')); ?>" disabled>
+            </div>
 
-</option>
+            <input type="email" name="email" placeholder="Email" value="<?php echo htmlspecialchars(oldInput('email')); ?>" required>
 
-<?php endwhile; ?>
+            <div class="password-field">
+                <input type="password" name="password" placeholder="Password" required id="password" class="textbox password-input">
+                <i class="fa fa-eye-slash" id="togglePassword"></i>
+            </div>
 
-</select>
+            <input type="text" name="first_name" placeholder="First Name" value="<?php echo htmlspecialchars(oldInput('first_name')); ?>" required>
+            <input type="text" name="last_name" placeholder="Last Name" value="<?php echo htmlspecialchars(oldInput('last_name')); ?>" required>
 
-<input type="text"
-       name="business_name"
-       id="business_name"
-       placeholder="Business Name"
-       class="textbox business-hidden"
-       style="display:none;">
+            <select name="gender" required class="textbox">
+                <option value="" <?php echo $selectedGender === '' ? 'selected' : ''; ?>>Sex</option>
+                <option value="Male" <?php echo $selectedGender === 'Male' ? 'selected' : ''; ?>>Male</option>
+                <option value="Female" <?php echo $selectedGender === 'Female' ? 'selected' : ''; ?>>Female</option>
+                <option value="Other" <?php echo $selectedGender === 'Other' ? 'selected' : ''; ?>>Prefer not to Say</option>
+            </select>
 
+            <select name="municipality" id="municipality" required class="textbox">
+                <option value="" disabled <?php echo $selectedMunicipality === '' ? 'selected' : ''; ?>>Municipality</option>
+                <?php if($cities): ?>
+                    <?php while($city = $cities->fetch_assoc()): ?>
+                        <option value="<?php echo htmlspecialchars($city['name']); ?>" <?php echo $selectedMunicipality === (string) $city['name'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($city['name']); ?>
+                        </option>
+                    <?php endwhile; ?>
+                <?php endif; ?>
+            </select>
 
-    <input type="email" name="email" placeholder="Email" required />
-<div style="position:relative; width:100%;">
+            <input
+                type="<?php echo oldInput('birthday') !== '' ? 'date' : 'text'; ?>"
+                name="birthday"
+                id="birthday"
+                class="textbox"
+                placeholder="Birthday"
+                onfocus="this.type='date'"
+                onblur="if(!this.value)this.type='text'"
+                value="<?php echo htmlspecialchars(oldInput('birthday')); ?>"
+                required
+            >
 
+            <input type="hidden" name="age" id="age">
 
+            <div id="permit_container" class="permit-wrapper business-hidden">
+                <input type="hidden" name="permit_year" id="permit_year" value="<?php echo htmlspecialchars(oldInput('permit_year')); ?>">
+                <input type="hidden" name="permit_number" id="permit_number" value="<?php echo htmlspecialchars(oldInput('permit_number')); ?>">
+                <input type="hidden" name="permit_issued_on" id="permit_issued_on" value="<?php echo htmlspecialchars(oldInput('permit_issued_on')); ?>">
 
-    <input type="password"
-           name="password"
-           placeholder="Password"
-           required
-           id="password"
-           class="textbox"
-           style="padding-right:45px;">
+                <input
+                    type="file"
+                    name="business_permit"
+                    id="business_permit"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                    style="display:none;"
+                    disabled
+                >
 
-    <i class="fa fa-eye-slash"
-       id="togglePassword"
-       style="
-            position:absolute;
-            right:15px;
-            top:50%;
-            transform:translateY(-50%);
-            cursor:pointer;
-            color:#001a47;
-            font-size:16px;
-       "></i>
+                <div class="permit-actions">
+                    <button type="button" class="permit-button" id="choose_permit_button">
+                        <span id="permit_text">Upload Business Permit</span>
+                        <i class="fa fa-upload"></i>
+                    </button>
+                    <button type="button" class="permit-button permit-camera-button" id="capture_permit_button">
+                        <span>Take Photo</span>
+                        <i class="fa fa-camera"></i>
+                    </button>
+                </div>
 
-</div>
+                <small class="permit-help">Upload an image or take a clear photo of the permit. The QR code will be scanned automatically.</small>
+                <small class="permit-status" id="permit_status"></small>
 
+            </div>
 
-    <input type="text" name="first_name" placeholder="First Name" required>
-
-    <input type="text" name="last_name" placeholder="Last Name" required>
-
-    <select name="gender" required class="textbox">
-        <option value="">Gender</option>
-        <option value="Male">Male</option>
-        <option value="Female">Female</option>
-        <option value="Other">Prefer not to Say</option>
-    </select>
-
-<input type="text"
-       name="birthday"
-       id="birthday"
-       class="textbox"
-       placeholder="Birthday"
-       onfocus="this.type='date'"
-       onblur="if(!this.value)this.type='text'"
-       required>
-
-    <input type="hidden" name="age" id="age">
-
-
-<!-- BUSINESS PERMIT FIELD (HIDDEN BY DEFAULT) -->
-<div id="permit_container" class="permit-wrapper">    <!-- HIDDEN REAL INPUT -->
-    <input type="file"
-           name="business_permit"
-           id="business_permit"
-           accept=".pdf,image/jpeg,image/jpg,image/png,image/*"
-           style="display:none;">
-
-    <!-- CUSTOM BUTTON -->
-    <div class="permit-button"
-         onclick="document.getElementById('business_permit').click()">
-
-        <span id="permit_text">Upload Business Permit</span>
-
-        <i class="fa fa-upload"></i>
-
+            <button type="submit" name="register">Sign Up</button>
+        </form>
     </div>
 
-    <!-- HELPER TEXT -->
-    <small class="permit-help">
-        PDF and image files only.
-    </small>
+        <div class="form-container sign-in" id="loginFormPanel" role="tabpanel">
+        <?php if($login_error) echo "<p class='form-alert error'>" . htmlspecialchars($login_error) . "</p>"; ?>
 
+        <form method="POST">
+            <div class="auth-avatar">
+                <i class="fa-regular fa-user"></i>
+            </div>
+            <h2 class="form-title">Login</h2>
+
+            <div class="input-group">
+                <i class="fa-solid fa-envelope"></i>
+                <input type="text" name="email" placeholder="Email or Username" value="<?php echo htmlspecialchars($email_value); ?>" required>
+            </div>
+
+            <div class="input-group password">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" name="password" id="loginPassword" placeholder="Password" value="<?php echo htmlspecialchars($password_value); ?>" required>
+                <i class="fa-solid fa-eye-slash" id="toggleLoginPassword"></i>
+            </div>
+
+            <div class="options-row">
+                <label>
+                    <input type="checkbox" name="remember" <?php echo $remember ? 'checked' : ''; ?>>
+                    Remember Me
+                </label>
+                <a href="#">Forgot password?</a>
+            </div>
+
+            <button type="submit" name="login">Login</button>
+        </form>
+    </div>
+    </main>
 </div>
 
-
-
-    <div class="social-icons">
-      <a href="#"><i class="fab fa-google"></i></a>
-      <a href="#"><i class="fab fa-facebook-f"></i></a>
-    </div>
-
-    <button type="submit" name="register">Sign Up</button>
-
-</form>
-
-</div>
-
-
- <div class="form-container sign-in">
-
-<?php if($login_error) echo "<p style='color:red;'>$login_error</p>"; ?>
-
-<form method="POST">
-
-    <img src="assets/images/logo.png" alt="NasugView Logo">
-
-    <div class="input-group">
-        <i class="fa-solid fa-envelope"></i>
-       <input type="text" name="email" placeholder="Email or Username"
-value="<?php echo htmlspecialchars($email_value); ?>" required>
-
-    </div>
-
-    <div class="input-group password">
-        <i class="fa-solid fa-lock"></i>
-        <input type="password" name="password"
-        id="loginPassword"
-        placeholder="Password"
-        value="<?php echo htmlspecialchars($password_value); ?>" required>
-        <i class="fa-solid fa-eye-slash" id="toggleLoginPassword"></i>
-    </div>
-
-    <div class="options-row">
-        <label>
-            <input type="checkbox" name="remember"
-            <?php echo $remember ? 'checked' : ''; ?>>
-            Remember Me
-        </label>
-        <a href="#">Forgot password?</a>
-    </div>
-
-    <button type="submit" name="login">Login</button>
-
-</form>
-</div>
-
-
-
-  <!-- Toggle Panels -->
-  <div class="toggle-container">
-    <div class="toggle">
-      <div class="toggle-panel toggle-left">
-
-    <span class="phrase1">
-        Discover <span class="star">★</span> Connect <span class="star">★</span> Support
-    </span>
-
-    <span class="phrase2">
-        Thrive with NasugView
-    </span>
-
-    <button class="hidden" id="loginBtn">Login</button>
-
-    <span class="signup-text">
-        Already have account?
-    </span>
-
-</div>
-      <div class="toggle-panel toggle-right">
-        <span class="phrase1">
-    Discover <span class="star">★</span> Connect <span class="star">★</span> Support
-</span>
-
-<span class="phrase2">Thrive with NasugView</span>
-
-<button class="hidden" id="registerBtn">Sign Up</button>
-
-<span class="signup-text">
-    Don't have account?
-</span>
-
-      </div>
-    </div>
-  </div>
-</div>
-
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script>
 const container = document.getElementById('container');
-const accountType = document.getElementById("account_type");
-const permitContainer = document.getElementById("permit_container");
-const permitInput = document.getElementById("business_permit");
+const accountType = document.getElementById('account_type');
+const permitInput = document.getElementById('business_permit');
+const choosePermitButton = document.getElementById('choose_permit_button');
+const capturePermitButton = document.getElementById('capture_permit_button');
+const businessNameInput = document.getElementById('business_name');
+const businessLineInput = document.getElementById('business_line');
+const permitYearInput = document.getElementById('permit_year');
+const permitNumberInput = document.getElementById('permit_number');
+const permitIssuedOnInput = document.getElementById('permit_issued_on');
+const businessGroups = document.querySelectorAll('.business-group, #permit_container');
+const permitText = document.getElementById('permit_text');
+const permitStatus = document.getElementById('permit_status');
+const togglePassword = document.getElementById('togglePassword');
+const passwordInput = document.getElementById('password');
+const toggleLoginPassword = document.getElementById('toggleLoginPassword');
+const loginPassword = document.getElementById('loginPassword');
+const birthdayInput = document.getElementById('birthday');
 
-const businessNameInput = document.getElementById("business_name");
-const businessLineInput = document.getElementById("business_line");
-
-const togglePassword = document.getElementById("togglePassword");
-const passwordInput = document.getElementById("password");
-const toggleLoginPassword = document.getElementById("toggleLoginPassword");
-const loginPassword = document.getElementById("loginPassword");
-/* PASSWORD TOGGLE (SIGN UP) */
-if (togglePassword && passwordInput) {
-    togglePassword.addEventListener("click", function () {
-        if (passwordInput.type === "password") {
-            passwordInput.type = "text";
-            this.classList.remove("fa-eye-slash");
-            this.classList.add("fa-eye");
+if(togglePassword && passwordInput){
+    togglePassword.addEventListener('click', function () {
+        if(passwordInput.type === 'password'){
+            passwordInput.type = 'text';
+            this.classList.remove('fa-eye-slash');
+            this.classList.add('fa-eye');
         } else {
-            passwordInput.type = "password";
-            this.classList.remove("fa-eye");
-            this.classList.add("fa-eye-slash");
+            passwordInput.type = 'password';
+            this.classList.remove('fa-eye');
+            this.classList.add('fa-eye-slash');
         }
     });
 }
 
-/* PASSWORD TOGGLE (LOGIN) */
-if (toggleLoginPassword && loginPassword) {
-    toggleLoginPassword.addEventListener("click", function(){
-        if(loginPassword.type === "password"){
-            loginPassword.type = "text";
-            this.classList.replace("fa-eye-slash","fa-eye");
+if(toggleLoginPassword && loginPassword){
+    toggleLoginPassword.addEventListener('click', function(){
+        if(loginPassword.type === 'password'){
+            loginPassword.type = 'text';
+            this.classList.replace('fa-eye-slash', 'fa-eye');
         } else {
-            loginPassword.type = "password";
-            this.classList.replace("fa-eye","fa-eye-slash");
+            loginPassword.type = 'password';
+            this.classList.replace('fa-eye', 'fa-eye-slash');
         }
     });
 }
 
-/* TOGGLE PANELS */
-document.getElementById('registerBtn').addEventListener('click', ()=>{
-    container.classList.add("active");
-});
+const registerBtn = document.getElementById('registerBtn');
+const loginBtn = document.getElementById('loginBtn');
+const registerPanel = document.getElementById('registerFormPanel');
+const loginPanel = document.getElementById('loginFormPanel');
 
-document.getElementById('loginBtn').addEventListener('click', ()=>{
-    container.classList.remove("active");
-});
+function setAuthMode(mode){
+    const isRegister = mode === 'register';
 
-/* BIRTHDAY LOGIC */
-const birthdayInput = document.getElementById("birthday");
+    container.classList.toggle('active', isRegister);
+    registerBtn.setAttribute('aria-selected', String(isRegister));
+    loginBtn.setAttribute('aria-selected', String(!isRegister));
+    registerPanel.hidden = !isRegister;
+    loginPanel.hidden = isRegister;
+}
 
-birthdayInput.addEventListener("keydown", function(e){
+registerBtn.addEventListener('click', () => setAuthMode('register'));
+loginBtn.addEventListener('click', () => setAuthMode('login'));
+setAuthMode(container.classList.contains('active') ? 'register' : 'login');
+
+birthdayInput.addEventListener('keydown', function(e){
     e.preventDefault();
 });
 
-birthdayInput.addEventListener("paste", function(e){
+birthdayInput.addEventListener('paste', function(e){
     e.preventDefault();
 });
 
-const wrapper = document.createElement("div");
-wrapper.style.position = "relative";
-wrapper.style.width = birthdayInput.offsetWidth + "px";
+const birthdayWrapper = document.createElement('div');
+birthdayWrapper.className = 'birthday-wrapper';
+birthdayInput.parentNode.insertBefore(birthdayWrapper, birthdayInput);
+birthdayWrapper.appendChild(birthdayInput);
 
-birthdayInput.parentNode.insertBefore(wrapper, birthdayInput);
-wrapper.appendChild(birthdayInput);
+const birthdayOverlay = document.createElement('div');
+birthdayOverlay.className = 'birthday-overlay';
+birthdayWrapper.appendChild(birthdayOverlay);
 
-const overlay = document.createElement("div");
-overlay.style.position = "absolute";
-overlay.style.left = "0";
-overlay.style.top = "0";
-overlay.style.width = "100%";
-overlay.style.height = "100%";
-overlay.style.display = "flex";
-overlay.style.alignItems = "center";
-overlay.style.padding = "12px 15px";
-overlay.style.color = "#000000";
-overlay.style.fontSize = "14px";
-overlay.style.pointerEvents = "none";
-overlay.style.zIndex = "3";
-
-wrapper.appendChild(overlay);
-
-birthdayInput.style.color = "#6c6c6c";
-birthdayInput.style.caretColor = "#6c6c6c";
-birthdayInput.style.position = "relative";
-birthdayInput.style.zIndex = "2";
-
-birthdayInput.addEventListener("change", function(){
-
-    if(!this.value){
-        overlay.innerHTML = "";
+function updateBirthdayOverlay(){
+    if(!birthdayInput.value){
+        birthdayOverlay.textContent = '';
         return;
     }
 
-    const birth = new Date(this.value);
+    const birth = new Date(birthdayInput.value);
     const today = new Date();
 
     let age = today.getFullYear() - birth.getFullYear();
-    const m = today.getMonth() - birth.getMonth();
+    const monthDiff = today.getMonth() - birth.getMonth();
 
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+    if(monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())){
         age--;
     }
 
-    const month = String(birth.getMonth()+1).padStart(2,'0');
-    const day   = String(birth.getDate()).padStart(2,'0');
-    const year  = birth.getFullYear();
+    const month = String(birth.getMonth() + 1).padStart(2, '0');
+    const day = String(birth.getDate()).padStart(2, '0');
+    const year = birth.getFullYear();
 
-    overlay.innerHTML = `${month}/${day}/${year} (${age} years old)`;
-});
-
-/* INITIAL STATE */
-permitContainer.style.display = "none";
-
-businessNameInput.style.display = "none";
-businessLineInput.style.display = "none";
-
-/* ACCOUNT TYPE CHANGE */
-accountType.addEventListener("change", function(){
-if(this.value === "business_owner"){
-
-    businessNameInput.style.display = "block";
-    businessLineInput.style.display = "block";
-    permitContainer.style.display = "block";
-
-    businessNameInput.disabled = false;
-    businessLineInput.disabled = false;
-    permitInput.disabled = false;
-
+    birthdayOverlay.textContent = `${month}/${day}/${year} (${age} years old)`;
 }
-else{
 
-    businessNameInput.style.display = "none";
-    businessLineInput.style.display = "none";
-    permitContainer.style.display = "none";
+birthdayInput.addEventListener('change', updateBirthdayOverlay);
 
-    businessNameInput.disabled = true;
-    businessLineInput.disabled = true;
-    permitInput.disabled = true;
+function toggleBusinessFields(isBusinessOwner){
+    businessGroups.forEach(group => {
+        group.classList.toggle('business-visible', isBusinessOwner);
+        group.classList.toggle('business-hidden', !isBusinessOwner);
+    });
+
+    businessNameInput.disabled = !isBusinessOwner;
+    businessLineInput.disabled = !isBusinessOwner;
+    permitInput.disabled = !isBusinessOwner;
+
+    if(!isBusinessOwner){
+        businessNameInput.value = '';
+        businessLineInput.selectedIndex = 0;
+        permitInput.value = '';
+        permitInput.removeAttribute('capture');
+        clearPermitQrData();
+        permitText.textContent = 'Upload Business Permit';
+    }
 
 }
 
+accountType.addEventListener('change', function(){
+    toggleBusinessFields(this.value === 'business_owner');
 });
 
-/* PERMIT FILE NAME DISPLAY */
-permitInput.addEventListener("change", function(){
-    if(this.files.length > 0){
-        document.getElementById("permit_text").textContent = this.files[0].name;
+function clearPermitQrData(){
+    permitYearInput.value = '';
+    permitNumberInput.value = '';
+    permitIssuedOnInput.value = '';
+
+    if(permitStatus){
+        permitStatus.textContent = '';
+        permitStatus.classList.remove('error', 'success');
+    }
+}
+
+function setPermitStatus(message, type){
+    if(!permitStatus){
+        return;
+    }
+
+    permitStatus.textContent = message;
+    permitStatus.classList.toggle('error', type === 'error');
+    permitStatus.classList.toggle('success', type === 'success');
+}
+
+function splitQrFields(text){
+    return text
+        .split(/[\n\r|;\t]+/)
+        .map(field => field.trim())
+        .filter(Boolean);
+}
+
+function parseIssuedDate(value){
+    const cleaned = value.trim();
+    let match = cleaned.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+
+    if(match){
+        return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    }
+
+    match = cleaned.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+
+    if(match){
+        return new Date(Number(match[3]), Number(match[1]) - 1, Number(match[2]));
+    }
+
+    const parsed = new Date(cleaned);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function toIsoDate(date){
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+}
+
+function extractPermitQrData(qrText){
+    const fields = splitQrFields(qrText);
+
+    if(fields.length < 4){
+        throw new Error('QR code format is incomplete.');
+    }
+
+    const yearMatch = fields[0].match(/\b(20\d{2})\b/);
+    const permitYear = yearMatch ? yearMatch[1] : '';
+    const permitNumber = (fields[2] || '').replace(/[^A-Za-z0-9-]/g, '');
+    const issuedDate = parseIssuedDate(fields[fields.length - 1]);
+    const currentYear = String(new Date().getFullYear());
+
+    if(!permitYear){
+        throw new Error('QR code year was not found.');
+    }
+
+    if(!permitNumber){
+        throw new Error('QR code permit number was not found.');
+    }
+
+    if(!issuedDate){
+        throw new Error('QR code issued-on date was not found.');
+    }
+
+    if(permitYear !== currentYear || String(issuedDate.getFullYear()) !== currentYear){
+        throw new Error(`This business permit is not valid for ${currentYear}. Please upload the current year's permit.`);
+    }
+
+    return {
+        permitYear,
+        permitNumber,
+        permitIssuedOn: toIsoDate(issuedDate)
+    };
+}
+
+function scanQrFromImage(file){
+    return new Promise((resolve, reject) => {
+        if(typeof jsQR !== 'function'){
+            reject(new Error('QR scanner failed to load. Please check your internet connection and try again.'));
+            return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = () => {
+            const image = new Image();
+
+            image.onload = () => {
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d', { willReadFrequently: true });
+
+                canvas.width = image.naturalWidth;
+                canvas.height = image.naturalHeight;
+                context.drawImage(image, 0, 0);
+
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const qr = jsQR(imageData.data, imageData.width, imageData.height);
+
+                if(!qr || !qr.data){
+                    reject(new Error('No readable QR code found. Please upload a clearer permit image.'));
+                    return;
+                }
+
+                resolve(qr.data);
+            };
+
+            image.onerror = () => reject(new Error('Unable to read this permit image.'));
+            image.src = reader.result;
+        };
+
+        reader.onerror = () => reject(new Error('Unable to read this permit image.'));
+        reader.readAsDataURL(file);
+    });
+}
+
+function openPermitPicker(useCamera){
+    if(useCamera){
+        permitInput.setAttribute('capture', 'environment');
+    } else {
+        permitInput.removeAttribute('capture');
+    }
+
+    permitInput.click();
+}
+
+choosePermitButton.addEventListener('click', () => openPermitPicker(false));
+capturePermitButton.addEventListener('click', () => openPermitPicker(true));
+
+permitInput.addEventListener('change', async function(){
+    clearPermitQrData();
+    permitText.textContent = this.files.length > 0 ? this.files[0].name : 'Upload Business Permit';
+
+    if(this.files.length === 0){
+        return;
+    }
+
+    const file = this.files[0];
+
+    if(!file.type.startsWith('image/')){
+        this.value = '';
+        permitText.textContent = 'Upload Business Permit';
+        setPermitStatus('Please upload an image file so the QR code can be scanned.', 'error');
+        return;
+    }
+
+    setPermitStatus('Scanning QR code...', '');
+
+    try {
+        const qrText = await scanQrFromImage(file);
+        const qrData = extractPermitQrData(qrText);
+
+        permitYearInput.value = qrData.permitYear;
+        permitNumberInput.value = qrData.permitNumber;
+        permitIssuedOnInput.value = qrData.permitIssuedOn;
+        setPermitStatus(
+            `Permit ${qrData.permitNumber} (${qrData.permitYear}) issued on ${qrData.permitIssuedOn}.`,
+            'success'
+        );
+    } catch (error) {
+        this.value = '';
+        permitText.textContent = 'Upload Business Permit';
+        clearPermitQrData();
+        setPermitStatus(error.message, 'error');
     }
 });
+
+toggleBusinessFields(accountType.value === 'business_owner');
+updateBirthdayOverlay();
 </script>
 </body>
 </html>

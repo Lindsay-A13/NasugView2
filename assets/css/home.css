@@ -341,6 +341,10 @@ font-size:15px;
 font-weight:800;
 }
 
+.hero-near-events-title strong{
+min-width:0;
+}
+
 .hero-near-events-title i{
 width:36px;
 height:36px;
