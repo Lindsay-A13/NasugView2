@@ -9,6 +9,7 @@ function ensureBusinessPermitQrDataTable(mysqli $conn): void {
             owner_id INT NOT NULL,
             permit_year VARCHAR(4) NOT NULL,
             permit_number VARCHAR(120) NOT NULL,
+            permit_issued_on DATE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_owner_qr_data (owner_id),
             UNIQUE KEY uniq_permit_year_number (permit_year, permit_number),
@@ -27,6 +28,18 @@ function ensureBusinessPermitQrDataTable(mysqli $conn): void {
         $conn->query("
             ALTER TABLE business_permit_qr_data
             ADD UNIQUE KEY uniq_permit_year_number (permit_year, permit_number)
+        ");
+    }
+
+    $issuedOnColumn = $conn->query("
+        SHOW COLUMNS FROM business_permit_qr_data
+        LIKE 'permit_issued_on'
+    ");
+
+    if($issuedOnColumn && $issuedOnColumn->num_rows === 0){
+        $conn->query("
+            ALTER TABLE business_permit_qr_data
+            ADD COLUMN permit_issued_on DATE NOT NULL AFTER permit_number
         ");
     }
 }
@@ -391,15 +404,16 @@ if(isset($_POST['register'])){
 
                 $qrDataInsert = $conn->prepare("
                     INSERT INTO business_permit_qr_data
-                    (owner_id, permit_year, permit_number)
-                    VALUES (?, ?, ?)
+                    (owner_id, permit_year, permit_number, permit_issued_on)
+                    VALUES (?, ?, ?, ?)
                 ");
 
                 $qrDataInsert->bind_param(
-                    "iss",
+                    "isss",
                     $newUserId,
                     $permit_year,
-                    $permit_number
+                    $permit_number,
+                    $permit_issued_on
                 );
 
                 if(!$qrDataInsert->execute()){

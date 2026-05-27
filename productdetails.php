@@ -233,6 +233,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .cart-shake{animation:cartShake .4s ease}
 @keyframes cartShake{0%{transform:rotate(0)}25%{transform:rotate(-10deg)}50%{transform:rotate(10deg)}75%{transform:rotate(-5deg)}100%{transform:rotate(0)}}
 .fly-image{position:fixed;z-index:9999;pointer-events:none;border-radius:12px;transition:all .6s cubic-bezier(.4,-0.3,.6,1.4)}
+.mobile-cart-target{display:none}
 .container{max-width:1100px;margin:auto;padding:20px;padding-bottom:140px}
 .detail-card{display:grid;grid-template-columns:1.05fr .95fr;gap:28px;background:#fff;padding:24px;border-radius:16px;box-shadow:0 8px 22px rgba(0,0,0,.08)}
 .product-image{width:100%;height:100%;min-height:320px;object-fit:cover;border-radius:14px;background:#f8fafc}
@@ -305,12 +306,36 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .anonymous-toggle{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:#334155;font-size:14px}
 .submit-review{width:100%;padding:12px;border:none;border-radius:12px;background:#001a47;color:#fff;font-weight:600;cursor:pointer}
 @media (max-width:768px){
+  .header{
+    display:none;
+  }
   .container{padding:16px;padding-bottom:130px}
   .detail-card{grid-template-columns:1fr;gap:20px;padding:18px}
   .detail-card,.info-grid,.reviews-section{width:min(100%,720px);margin-left:auto;margin-right:auto}
   .product-image{min-height:240px}
   .product-title{font-size:28px}
   .info-grid{grid-template-columns:1fr}
+  .mobile-cart-target{
+    position:fixed;
+    right:18px;
+    bottom:88px;
+    z-index:1001;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:54px;
+    height:54px;
+    border-radius:50%;
+    background:#001a47;
+    color:#fff;
+    text-decoration:none;
+    font-size:20px;
+    box-shadow:0 14px 30px rgba(0,26,71,.28);
+  }
+  .mobile-cart-target .cart-badge{
+    top:-5px;
+    right:-5px;
+  }
 }
 </style>
 <?php require_once "config/theme.php"; render_theme_head(); ?>
@@ -503,6 +528,13 @@ if((int) $review['is_anonymous'] !== 1 && !empty($review['profile_picture'])){
 </div>
 </div>
 
+<a href="cart.php" class="mobile-cart-target" id="mobileCartIcon" aria-label="Open cart">
+<i class="fa fa-shopping-cart"></i>
+<span class="cart-badge" id="mobileCartBadge" style="<?= $cartCount > 0 ? '' : 'display:none;' ?>">
+<?= $cartCount ?>
+</span>
+</a>
+
 <div class="modal" id="modal">
 <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="reviewModalTitle">
 <i class="fa fa-times modal-close" onclick="closeModal()"></i>
@@ -556,27 +588,36 @@ function addToCartAnimation(){
   }
 
   const productImg = document.getElementById("productImage");
-  const cartIcon = document.getElementById("cartIcon");
+  const desktopCartIcon = document.getElementById("cartIcon");
+  const mobileCartIcon = document.getElementById("mobileCartIcon");
+  const cartIcon = window.matchMedia("(max-width: 768px)").matches && mobileCartIcon
+    ? mobileCartIcon
+    : desktopCartIcon;
   const cartBadge = document.getElementById("cartBadge");
+  const mobileCartBadge = document.getElementById("mobileCartBadge");
   const imgRect = productImg.getBoundingClientRect();
+  const btnRect = addToCartBtn.getBoundingClientRect();
   const cartRect = cartIcon.getBoundingClientRect();
-  const centerX = window.innerWidth / 2 - imgRect.width / 4;
-  const centerY = window.innerHeight / 2 - imgRect.height / 4;
+  const imageIsVisible = imgRect.bottom > 0 && imgRect.top < window.innerHeight;
+  const startRect = imageIsVisible ? imgRect : btnRect;
+  const flySize = Math.min(startRect.width, 160);
+  const centerX = window.innerWidth / 2 - flySize / 2;
+  const centerY = window.innerHeight / 2 - flySize / 2;
   const flyImg = productImg.cloneNode(true);
 
   flyImg.classList.add("fly-image");
-  flyImg.style.top = imgRect.top + "px";
-  flyImg.style.left = imgRect.left + "px";
-  flyImg.style.width = imgRect.width + "px";
-  flyImg.style.height = imgRect.height + "px";
+  flyImg.style.top = (imageIsVisible ? imgRect.top : btnRect.top) + "px";
+  flyImg.style.left = (imageIsVisible ? imgRect.left : btnRect.left + btnRect.width / 2 - flySize / 2) + "px";
+  flyImg.style.width = (imageIsVisible ? imgRect.width : flySize) + "px";
+  flyImg.style.height = (imageIsVisible ? imgRect.height : flySize) + "px";
 
   document.body.appendChild(flyImg);
 
   setTimeout(() => {
     flyImg.style.top = centerY + "px";
     flyImg.style.left = centerX + "px";
-    flyImg.style.width = imgRect.width * 0.6 + "px";
-    flyImg.style.height = imgRect.height * 0.6 + "px";
+    flyImg.style.width = flySize + "px";
+    flyImg.style.height = flySize + "px";
     flyImg.style.transform = "scale(1.2)";
   }, 50);
 
@@ -622,12 +663,17 @@ function addToCartAnimation(){
         const newCount = currentCount + 1;
 
         cartBadge.innerText = newCount;
+        mobileCartBadge.innerText = newCount;
         cartBadge.style.display = "inline-block";
+        mobileCartBadge.style.display = "inline-block";
         cartBadge.style.transform = "scale(1.8)";
+        mobileCartBadge.style.transform = "scale(1.8)";
         cartBadge.style.transition = "0.25s ease";
+        mobileCartBadge.style.transition = "0.25s ease";
 
         setTimeout(() => {
           cartBadge.style.transform = "scale(1)";
+          mobileCartBadge.style.transform = "scale(1)";
         }, 250);
       }
     }, 1000);
