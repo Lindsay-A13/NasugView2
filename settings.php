@@ -8,6 +8,55 @@ $account_type = $_SESSION['account_type'];
 $success = "";
 $error = "";
 $accountLabel = ucwords(str_replace("_", " ", $account_type));
+$businessPermit = null;
+$permitStatus = null;
+
+function settingsTableExists(mysqli $conn, string $tableName): bool {
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+        LIMIT 1
+    ");
+
+    if(!$stmt){
+        return false;
+    }
+
+    $stmt->bind_param("s", $tableName);
+    $stmt->execute();
+    $exists = $stmt->get_result()->num_rows > 0;
+    $stmt->close();
+
+    return $exists;
+}
+
+function settingsTableColumns(mysqli $conn, string $tableName): array {
+    $stmt = $conn->prepare("
+        SELECT COLUMN_NAME
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+    ");
+
+    if(!$stmt){
+        return [];
+    }
+
+    $stmt->bind_param("s", $tableName);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $columns = [];
+
+    while($row = $result->fetch_assoc()){
+        $columns[] = $row["COLUMN_NAME"];
+    }
+
+    $stmt->close();
+
+    return $columns;
+}
 
 /* LOAD USER INFO */
 
@@ -19,7 +68,7 @@ if($account_type === "consumer"){
     ");
 }else{
     $stmt = $conn->prepare("
-        SELECT username,fname,lname,email
+        SELECT username,fname,lname,email,business_name
         FROM business_owner
         WHERE b_id=?
     ");
@@ -28,6 +77,101 @@ if($account_type === "consumer"){
 $stmt->bind_param("i",$user_id);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
+
+if($account_type === "business_owner"){
+    $businessPermit = [
+        "store_name" => "",
+        "uploaded_permit_number" => "",
+        "original_file_name" => "",
+        "uploaded_at" => "",
+        "updated_at" => "",
+        "permit_year" => "",
+        "qr_permit_number" => "",
+        "permit_issued_on" => "",
+    ];
+
+    if(settingsTableExists($conn, "business_permits")){
+        $permitColumns = settingsTableColumns($conn, "business_permits");
+        $hasPermitOwner = in_array("owner_id", $permitColumns, true);
+        $permitSelect = [
+            in_array("store_name", $permitColumns, true) ? "store_name" : "'' AS store_name",
+            in_array("permit_number", $permitColumns, true) ? "permit_number" : "'' AS permit_number",
+            in_array("original_file_name", $permitColumns, true) ? "original_file_name" : "'' AS original_file_name",
+            in_array("uploaded_at", $permitColumns, true) ? "uploaded_at" : "'' AS uploaded_at",
+            in_array("updated_at", $permitColumns, true) ? "updated_at" : "'' AS updated_at",
+        ];
+
+        if($hasPermitOwner){
+        $permitStmt = $conn->prepare("
+            SELECT " . implode(", ", $permitSelect) . "
+            FROM business_permits
+            WHERE owner_id = ?
+            LIMIT 1
+        ");
+
+        if($permitStmt){
+            $permitStmt->bind_param("i", $user_id);
+            $permitStmt->execute();
+            $uploadedPermit = $permitStmt->get_result()->fetch_assoc();
+            $permitStmt->close();
+
+            if($uploadedPermit){
+                $businessPermit["store_name"] = (string) ($uploadedPermit["store_name"] ?? "");
+                $businessPermit["uploaded_permit_number"] = (string) ($uploadedPermit["permit_number"] ?? "");
+                $businessPermit["original_file_name"] = (string) ($uploadedPermit["original_file_name"] ?? "");
+                $businessPermit["uploaded_at"] = (string) ($uploadedPermit["uploaded_at"] ?? "");
+                $businessPermit["updated_at"] = (string) ($uploadedPermit["updated_at"] ?? "");
+            }
+        }
+        }
+    }
+
+    if(settingsTableExists($conn, "business_permit_qr_data")){
+        $qrColumns = settingsTableColumns($conn, "business_permit_qr_data");
+        $hasQrOwner = in_array("owner_id", $qrColumns, true);
+        $qrSelect = [
+            in_array("permit_year", $qrColumns, true) ? "permit_year" : "'' AS permit_year",
+            in_array("permit_number", $qrColumns, true) ? "permit_number" : "'' AS permit_number",
+            in_array("permit_issued_on", $qrColumns, true) ? "permit_issued_on" : "'' AS permit_issued_on",
+        ];
+
+        if($hasQrOwner){
+        $qrStmt = $conn->prepare("
+            SELECT " . implode(", ", $qrSelect) . "
+            FROM business_permit_qr_data
+            WHERE owner_id = ?
+            LIMIT 1
+        ");
+
+        if($qrStmt){
+            $qrStmt->bind_param("i", $user_id);
+            $qrStmt->execute();
+            $qrPermit = $qrStmt->get_result()->fetch_assoc();
+            $qrStmt->close();
+
+            if($qrPermit){
+                $businessPermit["permit_year"] = (string) ($qrPermit["permit_year"] ?? "");
+                $businessPermit["qr_permit_number"] = (string) ($qrPermit["permit_number"] ?? "");
+                $businessPermit["permit_issued_on"] = (string) ($qrPermit["permit_issued_on"] ?? "");
+            }
+        }
+        }
+    }
+
+    $permitYear = (int) ($businessPermit['permit_year'] ?? 0);
+
+    if($permitYear > 0){
+        $validUntil = DateTime::createFromFormat("Y-m-d H:i:s", $permitYear . "-12-31 23:59:59");
+        $today = new DateTime("now");
+        $isExpired = $validUntil && $today > $validUntil;
+
+        $permitStatus = [
+            "class" => $isExpired ? "expired" : "valid",
+            "label" => $isExpired ? "Expired" : "Valid till " . $validUntil->format("F j, Y"),
+            "valid_until" => $validUntil ? $validUntil->format("F j, Y") : "",
+        ];
+    }
+}
 
 
 /* UPDATE INFO */
@@ -86,8 +230,8 @@ $error="Update failed.";
 --muted:#64748b;
 --border:#d9e2f1;
 --shadow:0 18px 40px rgba(15, 23, 42, 0.08);
---primary:#4f46e5;
---primary-dark:#4338ca;
+--primary:#001a47;
+--primary-dark:#0f4c81;
 --success-bg:#ecfdf5;
 --success-text:#166534;
 --error-bg:#fef2f2;
@@ -126,7 +270,7 @@ align-items:flex-end;
 gap:20px;
 padding:28px;
 margin-bottom:24px;
-background:linear-gradient(135deg, rgba(79, 70, 229, 0.96), rgba(14, 165, 233, 0.92));
+background:linear-gradient(135deg, rgba(0, 26, 71, 0.97), rgba(15, 76, 129, 0.94));
 color:#fff;
 border-radius:28px;
 box-shadow:var(--shadow);
@@ -255,8 +399,8 @@ transition:border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 
 input:focus,
 select:focus{
-border-color:rgba(79, 70, 229, 0.45);
-box-shadow:0 0 0 4px rgba(79, 70, 229, 0.12);
+border-color:rgba(0, 26, 71, 0.38);
+box-shadow:0 0 0 4px rgba(0, 26, 71, 0.1);
 background:#fff;
 }
 
@@ -280,7 +424,7 @@ font-weight:700;
 font-size:14px;
 margin-top:18px;
 transition:transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
-box-shadow:0 12px 24px rgba(79, 70, 229, 0.22);
+box-shadow:0 12px 24px rgba(0, 26, 71, 0.18);
 }
 
 button:hover{
@@ -451,7 +595,7 @@ transition:transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 
 .settings-link:hover{
 transform:translateY(-1px);
-border-color:rgba(79, 70, 229, 0.35);
+border-color:rgba(0, 26, 71, 0.28);
 box-shadow:0 12px 24px rgba(15, 23, 42, 0.08);
 }
 
@@ -474,14 +618,70 @@ color:var(--primary);
 flex-shrink:0;
 }
 
-.security-list{
+.permit-card{
 display:grid;
-gap:12px;
-padding-left:20px;
-margin:0;
+gap:14px;
+}
+
+.permit-status{
+display:inline-flex;
+align-items:center;
+gap:8px;
+width:max-content;
+max-width:100%;
+padding:8px 12px;
+border-radius:999px;
+font-size:13px;
+font-weight:800;
+}
+
+.permit-status.valid{
+background:var(--success-bg);
+color:var(--success-text);
+border:1px solid rgba(22, 101, 52, 0.16);
+}
+
+.permit-status.expired{
+background:var(--error-bg);
+color:var(--error-text);
+border:1px solid rgba(185, 28, 28, 0.16);
+}
+
+.permit-status.missing{
+background:var(--surface-muted);
 color:var(--muted);
+border:1px solid var(--border);
+}
+
+.permit-list{
+display:grid;
+gap:10px;
+}
+
+.permit-item{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:14px;
+padding:12px 14px;
+border-radius:16px;
+background:var(--surface-muted);
+border:1px solid var(--border);
+}
+
+.permit-label{
+font-size:12px;
+font-weight:800;
+letter-spacing:0.06em;
+text-transform:uppercase;
+color:var(--muted);
+}
+
+.permit-value{
 font-size:14px;
-line-height:1.6;
+font-weight:700;
+line-height:1.45;
+text-align:right;
 }
 
 .theme-dark{
@@ -541,31 +741,109 @@ align-items:flex-start;
 }
 
 @media(max-width:640px){
+body{
+padding-bottom:180px;
+}
+
 .container{
-padding:22px 14px 0;
+padding:16px 12px 75px;
 }
 
 .hero{
-padding:22px 18px;
-border-radius:22px;
+padding:18px 16px;
+border-radius:18px;
+margin-bottom:14px;
+gap:12px;
 }
 
 .hero-title{
-font-size:28px;
+font-size:24px;
+margin-bottom:4px;
+}
+
+.hero-subtitle{
+font-size:13px;
+line-height:1.45;
+}
+
+.hero-badge{
+padding:8px 12px;
+font-size:12px;
 }
 
 .section{
-border-radius:20px;
+border-radius:16px;
 }
 
 .section-head,
 .card-body{
-padding-left:18px;
-padding-right:18px;
+padding-left:14px;
+padding-right:14px;
+}
+
+.section-head{
+padding-top:16px;
+padding-bottom:8px;
+}
+
+.section-title{
+font-size:17px;
+}
+
+.section-desc{
+font-size:12px;
+line-height:1.45;
+margin-top:6px;
+}
+
+.stack{
+gap:14px;
+}
+
+.settings-layout{
+gap:14px;
 }
 
 .grid{
 grid-template-columns:1fr;
+gap:12px;
+}
+
+.pref-list,
+.link-list,
+.overview-list{
+gap:10px;
+}
+
+.pref-item,
+.settings-link,
+.overview-item{
+padding:12px 14px;
+border-radius:14px;
+}
+
+.settings-link-title,
+.pref-title{
+font-size:14px;
+}
+
+.settings-link-text,
+.pref-text{
+font-size:12px;
+line-height:1.4;
+}
+
+.settings-link-icon{
+font-size:18px;
+}
+
+.permit-item{
+flex-direction:column;
+gap:6px;
+}
+
+.permit-value{
+text-align:left;
 }
 
 .actions{
@@ -666,6 +944,56 @@ width:100%;
 </div>
 </div>
 
+<?php if($account_type === "business_owner"): ?>
+<div class="section">
+<div class="section-head">
+<h2 class="section-title">Business Permit</h2>
+<p class="section-desc">Permit information connected to your registered business account.</p>
+</div>
+<div class="card-body">
+<div class="permit-card">
+<?php if($businessPermit && (!empty($businessPermit['uploaded_permit_number']) || !empty($businessPermit['qr_permit_number']) || !empty($businessPermit['permit_year']))): ?>
+<?php
+$permitNumber = $businessPermit['qr_permit_number'] ?: ($businessPermit['uploaded_permit_number'] ?? '');
+$statusClass = $permitStatus['class'] ?? 'missing';
+$statusLabel = $permitStatus['label'] ?? 'Permit date unavailable';
+?>
+<div class="permit-status <?php echo htmlspecialchars($statusClass); ?>">
+<i class="fa <?php echo $statusClass === 'valid' ? 'fa-circle-check' : 'fa-circle-exclamation'; ?>"></i>
+<span><?php echo htmlspecialchars($statusLabel); ?></span>
+</div>
+
+<div class="permit-list">
+<div class="permit-item">
+<span class="permit-label">Business Name</span>
+<span class="permit-value"><?php echo htmlspecialchars($user['business_name'] ?: ($businessPermit['store_name'] ?: 'Business')); ?></span>
+</div>
+<div class="permit-item">
+<span class="permit-label">Permit Number</span>
+<span class="permit-value"><?php echo htmlspecialchars($permitNumber ?: 'Not available'); ?></span>
+</div>
+<div class="permit-item">
+<span class="permit-label">Permit Year</span>
+<span class="permit-value"><?php echo htmlspecialchars($businessPermit['permit_year'] ?: 'Not available'); ?></span>
+</div>
+<?php if(!empty($businessPermit['permit_issued_on'])): ?>
+<div class="permit-item">
+<span class="permit-label">Issued On</span>
+<span class="permit-value"><?php echo htmlspecialchars(date("F j, Y", strtotime($businessPermit['permit_issued_on']))); ?></span>
+</div>
+<?php endif; ?>
+</div>
+<?php else: ?>
+<div class="permit-status missing">
+<i class="fa fa-file-circle-question"></i>
+<span>No business permit found</span>
+</div>
+<?php endif; ?>
+</div>
+</div>
+</div>
+<?php endif; ?>
+
 </div>
 
 <div class="stack">
@@ -736,20 +1064,6 @@ width:100%;
 </div>
 </div>
 
-<div class="section">
-<div class="section-head">
-<h2 class="section-title" data-i18n="security_title">Security Tips</h2>
-<p class="section-desc" data-i18n="security_desc">Recommended habits to help protect your account until dedicated security controls are added.</p>
-</div>
-<div class="card-body">
-<ul class="security-list">
-<li data-i18n="security_tip_1">Use a unique password that you do not reuse on other sites or apps.</li>
-<li data-i18n="security_tip_2">Keep your email address current so account recovery and important notices reach you.</li>
-<li data-i18n="security_tip_3">Log out after using shared devices, especially in schools, shops, or public workstations.</li>
-</ul>
-</div>
-</div>
-
 </div>
 
 </div>
@@ -794,12 +1108,7 @@ profile_link_desc: "Review your public profile, cover photo, and personal inform
 notifications_link_title: "Notifications",
 notifications_link_desc: "Check order activity, reviews, and other account alerts.",
 logout_link_title: "Log Out",
-logout_link_desc: "Sign out of this device when you are using a shared or public computer.",
-security_title: "Security Tips",
-security_desc: "Recommended habits to help protect your account until dedicated security controls are added.",
-security_tip_1: "Use a unique password that you do not reuse on other sites or apps.",
-security_tip_2: "Keep your email address current so account recovery and important notices reach you.",
-security_tip_3: "Log out after using shared devices, especially in schools, shops, or public workstations."
+logout_link_desc: "Sign out of this device when you are using a shared or public computer."
 },
 fil: {
 hero_title: "Mga Setting",
@@ -829,12 +1138,7 @@ profile_link_desc: "Tingnan ang iyong pampublikong profile, cover photo, at pers
 notifications_link_title: "Mga Notification",
 notifications_link_desc: "Suriin ang order activity, reviews, at iba pang account alerts.",
 logout_link_title: "Mag Log Out",
-logout_link_desc: "Mag-sign out sa device na ito lalo na kung shared o pampublikong computer ang gamit mo.",
-security_title: "Mga Paalala sa Seguridad",
-security_desc: "Mga inirerekomendang gawain para maprotektahan ang iyong account habang wala pang dagdag na security controls.",
-security_tip_1: "Gumamit ng natatanging password na hindi mo ginagamit sa ibang sites o apps.",
-security_tip_2: "Panatilihing updated ang iyong email address para makarating ang account recovery at importanteng abiso.",
-security_tip_3: "Mag-log out pagkatapos gumamit ng shared devices, lalo na sa paaralan, shop, o pampublikong workstation."
+logout_link_desc: "Mag-sign out sa device na ito lalo na kung shared o pampublikong computer ang gamit mo."
 }
 };
 

@@ -238,9 +238,8 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 .product-body > div:nth-child(3){font-size:14px;font-weight:700;color:#001a47;margin-top:8px}
 .product-body > div[style*="font-size:12px;color:#888"]{display:inline-flex;margin-top:8px;padding:5px 8px;border-radius:999px;background:rgba(0,26,71,0.08);color:#001a47 !important;font-size:11px !important;font-weight:700}
 
-.stars{display:flex;align-items:center;gap:2px;font-size:13px;margin-top:8px;color:#001a47}
-.stars i{color:#d6d6d6}
-.stars i.fa-star{color:#001a47}
+.stars{display:flex;align-items:center;gap:4px;font-size:13px;margin-top:8px;color:#001a47;font-weight:700}
+.stars i{color:#001a47}
 .rating-line{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
 .rating-line .stars{margin-top:0}
 .rating-value{font-size:13px;color:#777;font-weight:600}
@@ -304,9 +303,7 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 <div class="star-bar">
 <?php for($i=1;$i<=5;$i++): ?>
   <button class="star-btn" data-rating="<?= $i ?>">
-    <?php for($s=1;$s<=5;$s++): ?>
-      <i class="fa <?= $s <= $i ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
-    <?php endfor; ?>
+    <i class="fa fa-star"></i> (<?= $i ?>)
   </button>
 <?php endfor; ?>
 </div>
@@ -352,13 +349,11 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
       <div>₱<?= number_format($row['price'],2); ?></div>
       <div class="rating-line">
       <div class="stars">
-        <?php $rating = round($row['avg_rating']); for($i=1;$i<=5;$i++): ?>
-          <i class="fa <?= $i <= $rating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
-        <?php endfor; ?>
+        <i class="fa fa-star"></i>
+        <span>(<?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>)</span>
       </div>
       <div class="rating-value">
-        <?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>
-        (<?= (int) $row['total_reviews']; ?>)
+        <?= (int) $row['total_reviews']; ?> review<?= (int) $row['total_reviews'] === 1 ? '' : 's' ?>
       </div>
       </div>
       <div class="distance-line" data-distance-label>Distance unavailable</div>
@@ -407,13 +402,11 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 
         <div class="rating-line">
         <div class="stars">
-            <?php $rating = round($row['avg_rating']); for($i=1;$i<=5;$i++): ?>
-              <i class="fa <?= $i <= $rating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
-            <?php endfor; ?>
+            <i class="fa fa-star"></i>
+            <span>(<?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>)</span>
         </div>
         <div class="rating-value">
-            <?= $row['avg_rating'] ? $row['avg_rating'] : '0.0' ?>
-            (<?= (int) $row['total_reviews']; ?>)
+            <?= (int) $row['total_reviews']; ?> review<?= (int) $row['total_reviews'] === 1 ? '' : 's' ?>
         </div>
         </div>
 
@@ -462,16 +455,11 @@ $img = !empty($biz['business_photo'])
       </div>
       <div class="rating-line">
       <div class="stars">
-      <?php 
-      $rating = round($biz['avg_rating']);
-      for($i=1;$i<=5;$i++):
-      ?>
-        <i class="fa <?= $i <= $rating ? 'fa-star' : 'fa-regular fa-star' ?>"></i>
-      <?php endfor; ?>
+        <i class="fa fa-star"></i>
+        <span>(<?= $biz['avg_rating'] ? $biz['avg_rating'] : '0.0' ?>)</span>
       </div>
       <div class="rating-value">
-        <?= $biz['avg_rating'] ? $biz['avg_rating'] : '0.0' ?>
-        (<?= $biz['total_reviews']; ?>)
+        <?= (int) $biz['total_reviews']; ?> review<?= (int) $biz['total_reviews'] === 1 ? '' : 's' ?>
       </div>
       </div>
       <div class="distance-line" data-distance-label>Distance unavailable</div>

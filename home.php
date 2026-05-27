@@ -344,30 +344,6 @@ $featuredStmt = $conn->prepare("
 $featuredStmt->execute();
 $featured = $featuredStmt->get_result();
 
-$promoCodes = [
-    [
-        "code" => "NASUG10",
-        "title" => "10% off local finds",
-        "description" => "Use on eligible shops and services.",
-        "meta" => "Min. spend PHP 299",
-        "icon" => "fa-ticket"
-    ],
-    [
-        "code" => "VIEW50",
-        "title" => "PHP 50 welcome deal",
-        "description" => "Save on your next booking or order.",
-        "meta" => "New users",
-        "icon" => "fa-gift"
-    ],
-    [
-        "code" => "TOPRATED",
-        "title" => "Rated picks reward",
-        "description" => "Try trusted businesses with a bonus.",
-        "meta" => "Top rated partners",
-        "icon" => "fa-star"
-    ]
-];
-
 /* ================= NEAR EVENTS ================= */
 
 $nearEvents = [];
@@ -511,7 +487,7 @@ $reviews = $reviewStmt->get_result();
 
 
 <?php require_once "config/theme.php"; render_theme_head(); ?>
-<link rel="stylesheet" href="assets/css/home.css?v=20260512-near-events">
+<link rel="stylesheet" href="assets/css/home.css?v=20260527-reviews">
 </head>
 
 <body>
@@ -519,10 +495,10 @@ $reviews = $reviewStmt->get_result();
 <div class="container">
 
 <div class="topbar">
-<div class="search-bar">
+<a href="marketplace.php" class="search-bar">
 <span>Search for ...</span>
 <i class="fa fa-search"></i>
-</div>
+</a>
 
 <a href="cart.php" class="cart-btn">
 <i class="fa fa-cart-shopping"></i>
@@ -537,18 +513,13 @@ $reviews = $reviewStmt->get_result();
 <div class="hero-copy">
 <span class="hero-eyebrow">Nasugbu local guide</span>
 <h1>Welcome, <?php echo htmlspecialchars($_SESSION['username']); ?>!</h1>
-<p>Find trusted businesses, collect deals, and explore top-rated local favorites in one place.</p>
+<p>Find trusted businesses and explore top-rated local favorites in one place.</p>
 <div class="hero-actions">
 <a href="marketplace.php" class="hero-primary"><i class="fa fa-store"></i> Explore Shops</a>
 <a href="cart.php" class="hero-secondary"><i class="fa fa-cart-shopping"></i> View Cart</a>
 </div>
 </div>
 <div class="hero-deals" aria-label="Featured benefits">
-<div class="hero-deal-card">
-<i class="fa fa-ticket"></i>
-<strong>3</strong>
-<span>Active codes</span>
-</div>
 <div class="hero-near-events-card">
 <div class="hero-near-events-title">
 <i class="fa fa-calendar-day"></i>
@@ -575,47 +546,6 @@ $eventUrl = trim($event['code']) !== ""
 <?php endif; ?>
 </div>
 </div>
-</div>
-</section>
-
-<section class="promo-section" aria-labelledby="promo-title">
-<div class="section-heading">
-<div>
-<div class="section-kicker">Limited deals</div>
-<h2 id="promo-title">Promo Codes</h2>
-</div>
-<a href="marketplace.php" class="section-link">Browse deals</a>
-</div>
-
-<div class="promo-spotlight">
-<div class="promo-spotlight-copy">
-<span>NasugView Deals</span>
-<strong>Save more on local favorites</strong>
-<small>Collect codes, discover trusted places, and enjoy better value around Nasugbu.</small>
-</div>
-<div class="promo-spotlight-art" aria-hidden="true">
-<span class="deal-bubble deal-bubble-main"><i class="fa fa-percent"></i></span>
-<span class="deal-bubble deal-bubble-ticket"><i class="fa fa-ticket"></i></span>
-<span class="deal-bubble deal-bubble-star"><i class="fa fa-star"></i></span>
-</div>
-</div>
-
-<div class="promo-rail">
-<?php foreach($promoCodes as $promo): ?>
-<article class="promo-card">
-<div class="promo-icon">
-<i class="fa <?php echo htmlspecialchars($promo['icon']); ?>"></i>
-</div>
-<div class="promo-copy">
-<strong><?php echo htmlspecialchars($promo['title']); ?></strong>
-<span><?php echo htmlspecialchars($promo['description']); ?></span>
-<small><?php echo htmlspecialchars($promo['meta']); ?></small>
-</div>
-<div class="promo-code" aria-label="Promo code <?php echo htmlspecialchars($promo['code']); ?>">
-<?php echo htmlspecialchars($promo['code']); ?>
-</div>
-</article>
-<?php endforeach; ?>
 </div>
 </section>
 
@@ -753,7 +683,12 @@ if(!empty($row['business_photo'])){
 
 </div>
 
-<div class="section-title">Latest Reviews</div>
+<div class="section-heading section-heading-spaced">
+<div>
+<div class="section-kicker">Community updates</div>
+<h2>Latest Reviews</h2>
+</div>
+</div>
 
 <?php while($review = $reviews->fetch_assoc()): ?>
 
@@ -769,8 +704,6 @@ if(!empty($review['images'])){
 
 <?php if(!empty($images)): ?>
 
-<div class="review-images">
-
 <?php
 $reviewImagePaths = [];
 foreach($images as $img){
@@ -779,18 +712,26 @@ foreach($images as $img){
         $reviewImagePaths[] = "uploads/reviews/".$trimmedImg;
     }
 }
+
+$visibleReviewImages = array_slice($reviewImagePaths, 0, 5);
+$remainingReviewImages = max(0, count($reviewImagePaths) - count($visibleReviewImages));
 ?>
 
-<?php foreach($reviewImagePaths as $index => $imagePath): ?>
+<div class="review-images review-images-count-<?php echo min(count($reviewImagePaths), 5); ?>">
+
+<?php foreach($visibleReviewImages as $index => $imagePath): ?>
 
 <button
 type="button"
-class="review-image-btn"
+class="review-image-btn<?php echo ($remainingReviewImages > 0 && $index === count($visibleReviewImages) - 1) ? ' has-more-images' : ''; ?>"
 data-images='<?php echo htmlspecialchars(json_encode($reviewImagePaths), ENT_QUOTES, "UTF-8"); ?>'
 data-index="<?php echo $index; ?>"
 aria-label="Open review image"
 >
 <img src="<?php echo htmlspecialchars($imagePath); ?>" alt="Review image">
+<?php if($remainingReviewImages > 0 && $index === count($visibleReviewImages) - 1): ?>
+<span class="review-image-more">+<?php echo $remainingReviewImages; ?></span>
+<?php endif; ?>
 </button>
 
 <?php endforeach; ?>

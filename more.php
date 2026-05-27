@@ -181,6 +181,31 @@ body {
     background: #001a47;
     color: #fff;
 }
+
+.coming-soon-icon {
+    width: 70px;
+    height: 70px;
+    margin: 0 auto 14px;
+    border-radius: 22px;
+    background: #eaf2ff;
+    color: #001a47;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+}
+
+.coming-soon-close {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    background: #001a47;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
 .cart-btn {
       position: relative;
       background: rgba(0, 26, 71, 0.08);
@@ -260,7 +285,7 @@ body {
     <span>Event Evaluation</span>
 </a>
 
-        <a href="#" class="option">
+        <a href="#" class="option" id="favoritesOption">
     <i class="fa fa-heart"></i>
     <span>Favorites</span>
 </a>
@@ -339,6 +364,17 @@ body {
     </div>
 </div>
 
+<!-- COMING SOON MODAL -->
+<div class="modal-overlay" id="comingSoonModal">
+    <div class="modal">
+        <div class="coming-soon-icon">
+            <i class="fa fa-person-digging"></i>
+        </div>
+        <h3>Coming Soon</h3>
+        <button type="button" class="coming-soon-close" onclick="closeComingSoon()">Okay</button>
+    </div>
+</div>
+
 <?php include 'bottom_nav.php'; ?>
 
 <script>
@@ -349,6 +385,23 @@ function openLogout(){
 
 function closeLogout(){
     document.getElementById('logoutModal').style.display = 'none';
+}
+
+const favoritesOption = document.getElementById('favoritesOption');
+
+if(favoritesOption){
+    favoritesOption.addEventListener('click', function(event){
+        event.preventDefault();
+        openComingSoon();
+    });
+}
+
+function openComingSoon(){
+    document.getElementById('comingSoonModal').style.display = 'flex';
+}
+
+function closeComingSoon(){
+    document.getElementById('comingSoonModal').style.display = 'none';
 }
 
 </script>
