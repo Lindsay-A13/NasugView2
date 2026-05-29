@@ -293,6 +293,11 @@ font-size:16px;
 cursor:pointer;
 }
 
+.register-btn-disabled{
+background:#98a2b3;
+cursor:not-allowed;
+}
+
 .no-events{
 text-align:center;
 padding:35px 10px;
