@@ -3,14 +3,15 @@ require_once "config/session.php";
 require_once "config/db.php";
 require_once "config/orders_helper.php";
 
-if($_SESSION['account_type'] !== "consumer"){
+if(!in_array($_SESSION['account_type'], ["consumer", "business_owner"], true)){
     header("Location: more.php");
     exit;
 }
 
 ensureOrderPaymentSupport($conn);
 
-$user_id = $_SESSION['user_id'];
+$user_id = (int) $_SESSION['user_id'];
+$account_type = (string) $_SESSION['account_type'];
 
 if(isset($_POST['cancel'])){
     $code = trim($_POST['order_code'] ?? '');
@@ -18,9 +19,12 @@ if(isset($_POST['cancel'])){
     $update = $conn->prepare("
         UPDATE orders
         SET status = 'Cancelled'
-        WHERE order_code = ? AND consumer_id = ? AND status = 'Pending'
+        WHERE order_code = ?
+          AND consumer_id = ?
+          AND (buyer_account_type = ? OR (? = 'consumer' AND buyer_account_type IS NULL))
+          AND status = 'Pending'
     ");
-    $update->bind_param("si", $code, $user_id);
+    $update->bind_param("siss", $code, $user_id, $account_type, $account_type);
     $update->execute();
     $update->close();
 
@@ -36,11 +40,18 @@ if(!in_array($currentTab, $allowedTabs, true)){
 }
 
 $query = "
-    SELECT o.*, i.name, i.image, b.business_name
+    SELECT
+        o.*,
+        COALESCE(i.name, s.name) AS name,
+        COALESCE(i.image, s.image) AS image,
+        s.duration AS service_duration,
+        b.business_name
     FROM orders o
-    JOIN inventory i ON o.product_id = i.id
+    LEFT JOIN inventory i ON o.product_id = i.id
+    LEFT JOIN services s ON o.service_id = s.id
     JOIN business_owner b ON o.business_id = b.b_id
     WHERE o.consumer_id = ?
+      AND (o.buyer_account_type = ? OR (? = 'consumer' AND o.buyer_account_type IS NULL))
 ";
 
 if($currentTab !== 'All'){
@@ -50,7 +61,7 @@ if($currentTab !== 'All'){
 $query .= " ORDER BY o.created_at DESC";
 
 $stmt = $conn->prepare($query);
-$stmt->bind_param("i", $user_id);
+$stmt->bind_param("iss", $user_id, $account_type, $account_type);
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -154,11 +165,23 @@ h2{margin:0 0 15px;color:#001a47}
     <?php foreach($items as $item): ?>
         <?php $subtotal = (float) $item['price'] * (int) $item['quantity']; ?>
         <?php $total += $subtotal; ?>
+        <?php
+        $isService = ($item['order_type'] ?? '') === 'service' || !empty($item['service_id']);
+        $imagePath = $isService
+            ? "uploads/services/" . ($item['image'] ?: 'default_service.jpg')
+            : "uploads/product/" . ($item['image'] ?: 'default_product.jpg');
+        ?>
         <div class="order-item">
-            <img src="uploads/product/<?= htmlspecialchars($item['image']) ?>">
+            <img src="<?= htmlspecialchars($imagePath) ?>">
             <div class="item-info">
                 <div><strong><?= htmlspecialchars($item['name']) ?></strong></div>
-                <div>Qty: <?= (int) $item['quantity'] ?></div>
+                <div><?= $isService ? 'Sessions' : 'Qty' ?>: <?= (int) $item['quantity'] ?><?= $isService && !empty($item['unit_label']) ? ' ' . htmlspecialchars($item['unit_label']) . ((int) $item['quantity'] === 1 ? '' : 's') : '' ?></div>
+                <?php if($isService && !empty($item['booking_date'])): ?>
+                <div>Appointment: <?= htmlspecialchars(date("M d, Y", strtotime($item['booking_date']))) ?><?= !empty($item['booking_time']) ? ' ' . htmlspecialchars(date("g:i A", strtotime($item['booking_time']))) : '' ?></div>
+                <?php endif; ?>
+                <?php if($isService && !empty($item['booking_note'])): ?>
+                <div>Note: <?= htmlspecialchars($item['booking_note']) ?></div>
+                <?php endif; ?>
                 <div>&#8369;<?= number_format((float) $item['price'], 2) ?></div>
                 <div>Business: <?= htmlspecialchars($item['business_name']) ?></div>
             </div>
@@ -190,7 +213,7 @@ h2{margin:0 0 15px;color:#001a47}
         <div class="left-actions">
             <?php if($status === "For Payment" || $status === "Completed" || $status === "Refund"): ?>
             <button type="button" class="btn btn-receipt" onclick='openReceiptModal(<?= json_encode($code) ?>)'>
-                Show Pickup Receipt
+                Show Receipt
             </button>
             <?php endif; ?>
         </div>
@@ -240,7 +263,7 @@ function openReceiptModal(orderCode){
 
     let html = `
         <div class="receipt-header">
-            <h3>Pickup Receipt</h3>
+            <h3>Order Receipt</h3>
         </div>
         <div class="receipt-ordercode">ORDER CODE: ${orderCode}</div>
         <div style="text-align:center;margin-bottom:10px;font-weight:bold;color:${statusColor};">
@@ -253,14 +276,19 @@ function openReceiptModal(orderCode){
 
     items.forEach((item) => {
         const subtotal = parseFloat(item.price) * parseInt(item.quantity, 10);
+        const isService = item.order_type === 'service' || item.service_id;
+        const imagePath = isService ? `uploads/services/${item.image || 'default_service.jpg'}` : `uploads/product/${item.image || 'default_product.jpg'}`;
+        const unitLabel = item.unit_label || (isService ? 'session' : '');
         total += subtotal;
 
         html += `
             <div class="receipt-item">
-                <img src="uploads/product/${item.image}">
+                <img src="${imagePath}">
                 <div class="receipt-item-info">
                     <div><strong>${item.name}</strong></div>
-                    <div>Qty: ${item.quantity}</div>
+                    <div>${isService ? 'Sessions' : 'Qty'}: ${item.quantity}${isService ? ' ' + unitLabel + (parseInt(item.quantity, 10) === 1 ? '' : 's') : ''}</div>
+                    ${isService && item.booking_date ? `<div>Appointment: ${item.booking_date}${item.booking_time ? ' ' + item.booking_time : ''}</div>` : ''}
+                    ${isService && item.booking_note ? `<div>Note: ${item.booking_note}</div>` : ''}
                     <div>&#8369;${subtotal.toFixed(2)}</div>
                 </div>
             </div>

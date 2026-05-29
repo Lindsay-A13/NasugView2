@@ -262,14 +262,12 @@ body {
         <span>Profile</span>
     </a>
 
-    <?php if($user_type === "consumer"): ?>
+    <?php if(in_array($user_type, ["consumer", "business_owner"], true)): ?>
 
 <a href="orders.php" class="option">
     <i class="fa fa-cart-shopping"></i>
     <span>My Orders</span>
 </a>
-
-<?php elseif($user_type === "business_owner"): ?>
 
 <?php endif; ?>
 

@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once "config/db.php";
+require_once "config/notifications_helper.php";
 
 function ensureBusinessPermitQrDataTable(mysqli $conn): void {
     $conn->query("
@@ -42,6 +43,26 @@ function ensureBusinessPermitQrDataTable(mysqli $conn): void {
             ADD COLUMN permit_issued_on DATE NOT NULL AFTER permit_number
         ");
     }
+}
+
+function ensureBusinessPermitsTable(mysqli $conn): void {
+    $conn->query("
+        CREATE TABLE IF NOT EXISTS business_permits (
+            permit_id INT AUTO_INCREMENT PRIMARY KEY,
+            owner_id INT NOT NULL,
+            permit_number VARCHAR(120) NOT NULL,
+            file_name VARCHAR(255) NOT NULL,
+            file_path VARCHAR(255) NOT NULL,
+            original_file_name VARCHAR(255) NOT NULL,
+            mime_type VARCHAR(120) NOT NULL,
+            uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_business_permits_owner (owner_id),
+            CONSTRAINT fk_business_permits_owner
+                FOREIGN KEY (owner_id) REFERENCES business_owner(b_id)
+                ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
 }
 
 function oldInput(string $key, string $default = ''): string {
@@ -114,7 +135,21 @@ function validateBusinessPermitUpload(array $file): array {
     ]];
 }
 
+function negosyoCenterPermitUploadDir(): string {
+    $currentDir = __DIR__;
+    $publicHtmlPos = stripos($currentDir, "public_html");
+
+    if($publicHtmlPos !== false){
+        $publicHtmlDir = substr($currentDir, 0, $publicHtmlPos + strlen("public_html"));
+        return $publicHtmlDir . DIRECTORY_SEPARATOR . "negosyocenter" . DIRECTORY_SEPARATOR . "uploads" . DIRECTORY_SEPARATOR . "business_permits";
+    }
+
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . "negosyocenter" . DIRECTORY_SEPARATOR . "uploads" . DIRECTORY_SEPARATOR . "business_permits";
+}
+
 ensureBusinessPermitQrDataTable($conn);
+ensureBusinessPermitsTable($conn);
+ensureNotificationStartColumns($conn);
 
 $lines = $conn->query("
     SELECT line_id, line_name
@@ -333,6 +368,7 @@ if(isset($_POST['register'])){
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
         $age = (int) $age;
         $storedPermitPath = null;
+        $mirrorPermitPath = null;
 
         try {
             $conn->begin_transaction();
@@ -340,8 +376,8 @@ if(isset($_POST['register'])){
             if($account_type === "consumer"){
                 $insert = $conn->prepare("
                     INSERT INTO consumers
-                    (username, password, email, fname, lname, gender, birthday, age, address)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (username, password, email, fname, lname, gender, birthday, age, notification_started_at, address)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
                 ");
 
                 $insert->bind_param(
@@ -361,8 +397,8 @@ if(isset($_POST['register'])){
 
                 $insert = $conn->prepare("
                     INSERT INTO business_owner
-                    (username, password, email, fname, lname, gender, birthday, age, address, business_name, line_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (username, password, email, fname, lname, gender, birthday, age, notification_started_at, address, business_name, line_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)
                 ");
 
                 $insert->bind_param(
@@ -402,6 +438,42 @@ if(isset($_POST['register'])){
                     throw new RuntimeException("Failed to save the uploaded business permit.");
                 }
 
+                $mirrorPermitDir = negosyoCenterPermitUploadDir();
+
+                if(!is_dir($mirrorPermitDir) && !mkdir($mirrorPermitDir, 0777, true) && !is_dir($mirrorPermitDir)){
+                    throw new RuntimeException("Failed to create the Negosyo Center permit upload directory.");
+                }
+
+                $mirrorPermitPath = $mirrorPermitDir . DIRECTORY_SEPARATOR . $storedPermitName;
+
+                if(!copy($storedPermitPath, $mirrorPermitPath)){
+                    throw new RuntimeException("Failed to copy the uploaded business permit to the Negosyo Center folder.");
+                }
+
+                $storedPermitRelativePath = "uploads/business_permits/" . $storedPermitName;
+                $permitFileInsert = $conn->prepare("
+                    INSERT INTO business_permits
+                    (owner_id, permit_number, file_name, file_path, original_file_name, mime_type)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ");
+
+                $originalPermitName = basename((string) $_FILES['business_permit']['name']);
+                $permitFileInsert->bind_param(
+                    "isssss",
+                    $newUserId,
+                    $permit_number,
+                    $storedPermitName,
+                    $storedPermitRelativePath,
+                    $originalPermitName,
+                    $permitUploadMeta['mime_type']
+                );
+
+                if(!$permitFileInsert->execute()){
+                    throw new RuntimeException("Failed to log the uploaded business permit.");
+                }
+
+                $permitFileInsert->close();
+
                 $qrDataInsert = $conn->prepare("
                     INSERT INTO business_permit_qr_data
                     (owner_id, permit_year, permit_number, permit_issued_on)
@@ -436,6 +508,10 @@ if(isset($_POST['register'])){
 
             if($storedPermitPath && file_exists($storedPermitPath)){
                 unlink($storedPermitPath);
+            }
+
+            if($mirrorPermitPath && file_exists($mirrorPermitPath)){
+                unlink($mirrorPermitPath);
             }
 
             $register_error = $e->getMessage();
@@ -836,21 +912,91 @@ function normalizePermitText(text){
 
 function cleanExtractedStoreName(storeName){
     return storeName
+        .replace(/\b(?:OF|TO\s+ENGAGE|ENGAGE)\b.*$/i, '')
         .replace(/^[\s:;,.|-]+|[\s:;,.|-]+$/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 }
 
 function extractStoreNameFromPermitText(text){
-    const normalized = normalizePermitText(text);
-    const match = normalized.match(/\bPERMIT\s+HERE\s+GRANTED\s+TO\s+(.+?)\s+OF\b/i);
+    const lines = text
+        .split(/[\n\r]+/)
+        .map(line => normalizePermitText(line))
+        .filter(Boolean);
 
-    if(match && match[1]){
-        return cleanExtractedStoreName(match[1]);
+    const labeledNamePatterns = [
+        /\b(?:STORE|BUSINESS|TRADE)\s+NAME\b\s*[:\-]?\s*(.+)$/i,
+        /\bNAME\s+OF\s+(?:STORE|BUSINESS|ESTABLISHMENT)\b\s*[:\-]?\s*(.+)$/i
+    ];
+
+    for(const line of lines){
+        for(const pattern of labeledNamePatterns){
+            const match = line.match(pattern);
+
+            if(match && cleanExtractedStoreName(match[1])){
+                return cleanExtractedStoreName(match[1]);
+            }
+        }
     }
 
-    const fallback = normalized.match(/\bGRANTED\s+TO\s+(.+?)(?:\s+OF\b|\s+TO\s+ENGAGE\b|[.])/i);
-    return fallback && fallback[1] ? cleanExtractedStoreName(fallback[1]) : '';
+    const normalized = normalizePermitText(text);
+    const grantPatterns = [
+        /\bPERMIT\s+(?:IS\s+)?HERE(?:BY)?\s+GRANTED\s+TO\s+(.+?)(?:\s+OF\b|\s+TO\s+ENGAGE\b|[.])/i,
+        /\b(?:IS\s+)?HERE(?:BY)?\s+GRANTED\s+TO\s+(.+?)(?:\s+OF\b|\s+TO\s+ENGAGE\b|[.])/i,
+        /\bGRANTED\s+TO\s+(.+?)(?:\s+OF\b|\s+TO\s+ENGAGE\b|[.])/i
+    ];
+
+    for(const pattern of grantPatterns){
+        const match = normalized.match(pattern);
+
+        if(match && cleanExtractedStoreName(match[1])){
+            return cleanExtractedStoreName(match[1]);
+        }
+    }
+
+    return '';
+}
+
+function createPermitOcrImage(file){
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = () => {
+            const image = new Image();
+
+            image.onload = () => {
+                const maxWidth = 1800;
+                const scale = Math.min(1, maxWidth / image.naturalWidth);
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d', { willReadFrequently: true });
+
+                canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+                canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageData.data;
+
+                for(let i = 0; i < data.length; i += 4){
+                    const gray = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
+                    const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.35 + 128));
+
+                    data[i] = contrasted;
+                    data[i + 1] = contrasted;
+                    data[i + 2] = contrasted;
+                }
+
+                context.putImageData(imageData, 0, 0);
+                resolve(canvas.toDataURL('image/jpeg', 0.92));
+            };
+
+            image.onerror = () => reject(new Error('Unable to read this permit image.'));
+            image.src = reader.result;
+        };
+
+        reader.onerror = () => reject(new Error('Unable to read this permit image.'));
+        reader.readAsDataURL(file);
+    });
 }
 
 async function extractStoreNameFromPermitImage(file){
@@ -858,7 +1004,8 @@ async function extractStoreNameFromPermitImage(file){
         throw new Error('Store name scanner failed to load. You can still type the store name manually.');
     }
 
-    const result = await window.Tesseract.recognize(file, 'eng');
+    const ocrImage = await createPermitOcrImage(file);
+    const result = await window.Tesseract.recognize(ocrImage, 'eng');
     const storeName = extractStoreNameFromPermitText(result?.data?.text || '');
 
     if(!storeName){

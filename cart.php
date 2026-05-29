@@ -72,14 +72,21 @@ if(isset($_POST['checkout_selected'])){
         $ids = implode(",", $selectedIds);
 
         $query = "
-            SELECT cart.*, inventory.stock, inventory.type, inventory.name
+            SELECT
+                cart.*,
+                inventory.stock,
+                COALESCE(inventory.type, 'service') AS type,
+                COALESCE(inventory.name, services.name) AS name,
+                services.duration AS service_duration
             FROM cart
-            JOIN inventory ON cart.product_id = inventory.id
+            LEFT JOIN inventory ON cart.product_id = inventory.id
+            LEFT JOIN services ON cart.service_id = services.id
             WHERE cart.id IN ($ids) AND cart.consumer_id = ?
+              AND cart.account_type = ?
         ";
 
         $stmt = $conn->prepare($query);
-        $stmt->bind_param("i", $user_id);
+        $stmt->bind_param("is", $user_id, $account_type);
         $stmt->execute();
         $result = $stmt->get_result();
 
@@ -111,23 +118,38 @@ if(isset($_POST['checkout_selected'])){
 if($item['type'] === "product" && $item['quantity'] > $item['stock']){
     throw new Exception("Oops! ".$item['name']." only has ".$item['stock']." left in stock.");
 }
-/* INSERT ORDER ROW */
+                $productId = !empty($item['product_id']) ? (int) $item['product_id'] : null;
+                $serviceId = !empty($item['service_id']) ? (int) $item['service_id'] : null;
+                $bookingDate = $item['booking_date'] ?? null;
+                $bookingTime = $item['booking_time'] ?? null;
+                $bookingNote = $item['booking_note'] ?? null;
+                $unitLabel = $item['unit_label'] ?? null;
+                $quantity = (int) $item['quantity'];
+                $price = (float) $item['price'];
+                $itemType = (string) $item['type'];
+
+                /* INSERT ORDER ROW */
                 $insert = $conn->prepare("
                     INSERT INTO orders
-                    (order_code, consumer_id, buyer_account_type, business_id, product_id, quantity, price, order_type, status)
-                    VALUES (?,?,?,?,?,?,?, ?, 'Pending')
+                    (order_code, consumer_id, buyer_account_type, business_id, product_id, service_id, quantity, price, order_type, booking_date, booking_time, booking_note, unit_label, status)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'Pending')
                 ");
 
                 $insert->bind_param(
-                    "sisiiids",
+                    "sisiiiidsssss",
                     $order_code,
                     $user_id,
                     $account_type,
                     $business_id,
-                    $item['product_id'],
-                    $item['quantity'],
-                    $item['price'],
-                    $item['type']
+                    $productId,
+                    $serviceId,
+                    $quantity,
+                    $price,
+                    $itemType,
+                    $bookingDate,
+                    $bookingTime,
+                    $bookingNote,
+                    $unitLabel
                 );
 
                 $insert->execute();
@@ -180,10 +202,17 @@ if($item['type'] === "product" && $item['quantity'] > $item['stock']){
 
 /* ================= LOAD CART ================= */
 $stmt = $conn->prepare("
-    SELECT cart.*, inventory.name, inventory.image, inventory.stock,
+    SELECT
+           cart.*,
+           COALESCE(inventory.name, services.name) AS name,
+           COALESCE(inventory.image, services.image) AS image,
+           inventory.stock,
+           COALESCE(inventory.type, 'service') AS type,
+           services.duration AS service_duration,
            business_owner.business_name, business_owner.b_id
     FROM cart
-    JOIN inventory ON cart.product_id = inventory.id
+    LEFT JOIN inventory ON cart.product_id = inventory.id
+    LEFT JOIN services ON cart.service_id = services.id
     JOIN business_owner ON cart.business_id = business_owner.b_id
     WHERE cart.consumer_id=? AND cart.account_type=?
     ORDER BY cart.business_id DESC
@@ -244,6 +273,14 @@ onclick="toggleBusiness(this)">
 </div>
 
 <?php foreach($business['items'] as $item): ?>
+<?php
+$isService = ($item['type'] ?? '') === 'service' || !empty($item['service_id']);
+$imagePath = $isService
+    ? "uploads/services/" . ($item['image'] ?: 'default_service.jpg')
+    : "uploads/product/" . ($item['image'] ?: 'default_product.jpg');
+$unitText = $isService ? ($item['unit_label'] ?: 'session') : 'item';
+$serviceDuration = max(0, (int) ($item['service_duration'] ?? 0));
+?>
 <div class="swipe-wrapper">
 
 <div class="delete-btn"
@@ -260,7 +297,7 @@ value="<?= $item['id'] ?>"
 data-price="<?= $item['price'] ?>"
 onchange="updateTotal(); syncBusinessCheckbox(<?= $business_id ?>)">
 
-<img src="uploads/product/<?= $item['image'] ?: 'default_product.jpg' ?>" class="item-img">
+<img src="<?= htmlspecialchars($imagePath) ?>" class="item-img">
 
 <div class="info">
 <div class="name"><?= htmlspecialchars($item['name']) ?></div>
@@ -269,7 +306,24 @@ onchange="updateTotal(); syncBusinessCheckbox(<?= $business_id ?>)">
 ₱<?= number_format($item['price'],2) ?>
 </div>
 
-<?php if($item['stock'] == 0): ?>
+<?php if($isService): ?>
+<div class="stock-warning" style="color:#334155;font-size:12px;font-weight:600;margin-top:4px;">
+<i class="fa fa-calendar-check"></i>
+Appointment: <?= htmlspecialchars(date("M d, Y", strtotime($item['booking_date'] ?? 'now'))) ?>
+<?= !empty($item['booking_time']) ? htmlspecialchars(date("g:i A", strtotime($item['booking_time']))) : '' ?>
+</div>
+<?php if($serviceDuration > 0): ?>
+<div style="color:#64748b;font-size:12px;margin-top:3px;">
+<?= (int) $serviceDuration ?> mins per <?= htmlspecialchars($unitText) ?>,
+<?= (int) $serviceDuration * (int) $item['quantity'] ?> mins total
+</div>
+<?php endif; ?>
+<?php if(!empty($item['booking_note'])): ?>
+<div style="color:#64748b;font-size:12px;margin-top:3px;">
+Note: <?= htmlspecialchars($item['booking_note']) ?>
+</div>
+<?php endif; ?>
+<?php elseif($item['stock'] == 0): ?>
 <div class="stock-warning" style="color:#dc3545;font-size:12px;font-weight:600;margin-top:4px;">
 ❌ Out of stock
 </div>
@@ -288,7 +342,7 @@ onclick="changeQty(<?= $item['id'] ?>,-1)">−</button>
 </span>
 
 <button class="qty-btn" type="button"
-<?= $item['quantity'] >= $item['stock'] ? 'disabled' : '' ?>
+<?= (!$isService && $item['quantity'] >= $item['stock']) ? 'disabled' : '' ?>
 onclick="changeQty(<?= $item['id'] ?>,1)">+</button>
 </div>
 </span>
