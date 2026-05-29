@@ -59,7 +59,7 @@ if(isset($_POST['update_qty'])){
 if(isset($_POST['checkout_selected'])){
 
     if(empty($_POST['selected'])){
-        header("Location: cart.php");
+        header("Location: cart.php?no_selected=1");
         exit;
     }
 
@@ -357,6 +357,15 @@ Checkout
   </div>
 </div>
 
+<!-- NO SELECTED ITEMS MODAL -->
+<div id="noSelectedModal" class="order-modal">
+  <div class="order-modal-content">
+    <h3 style="color:#001a47;">No Items Selected</h3>
+    <p>You have not selected any items for checkout</p>
+    <button class="order-ok-btn" onclick="closeNoSelectedModal()">OK</button>
+  </div>
+</div>
+
 <!-- DELETE CONFIRM MODAL -->
 <div id="deleteModal" class="order-modal">
   <div class="order-modal-content">
@@ -526,6 +535,16 @@ function closeErrorModal(){
     document.getElementById("errorModal").style.display = "none";
     window.location.href = "cart.php";
 }
+function closeNoSelectedModal(){
+    document.getElementById("noSelectedModal").style.display = "none";
+    window.location.href = "cart.php";
+}
+
+<?php if(isset($_GET['no_selected'])): ?>
+window.addEventListener("load", function(){
+    document.getElementById("noSelectedModal").style.display = "flex";
+});
+<?php endif; ?>
 
 <?php if(isset($_GET['error'])): ?>
 window.addEventListener("load", function(){
