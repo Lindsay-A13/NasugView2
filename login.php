@@ -525,6 +525,35 @@ $conn->close();
                 </select>
             </div>
 
+            <div id="permit_container" class="permit-wrapper business-hidden">
+                <input type="hidden" name="permit_year" id="permit_year" value="<?php echo htmlspecialchars(oldInput('permit_year')); ?>">
+                <input type="hidden" name="permit_number" id="permit_number" value="<?php echo htmlspecialchars(oldInput('permit_number')); ?>">
+                <input type="hidden" name="permit_issued_on" id="permit_issued_on" value="<?php echo htmlspecialchars(oldInput('permit_issued_on')); ?>">
+
+                <input
+                    type="file"
+                    name="business_permit"
+                    id="business_permit"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                    style="display:none;"
+                    disabled
+                >
+
+                <div class="permit-actions">
+                    <button type="button" class="permit-button" id="choose_permit_button">
+                        <span id="permit_text">Upload Business Permit</span>
+                        <i class="fa fa-upload"></i>
+                    </button>
+                    <button type="button" class="permit-button permit-camera-button" id="capture_permit_button">
+                        <span>Take Photo</span>
+                        <i class="fa fa-camera"></i>
+                    </button>
+                </div>
+
+                <small class="permit-help">Upload an image or take a clear photo of the permit. The QR code and store name will be scanned automatically.</small>
+                <small class="permit-status" id="permit_status"></small>
+            </div>
+
             <div class="business-group business-hidden" id="business_name_group">
                 <input type="text" name="business_name" id="business_name" placeholder="Store Name" class="textbox" value="<?php echo htmlspecialchars(oldInput('business_name')); ?>" disabled>
             </div>
@@ -571,36 +600,6 @@ $conn->close();
 
             <input type="hidden" name="age" id="age">
 
-            <div id="permit_container" class="permit-wrapper business-hidden">
-                <input type="hidden" name="permit_year" id="permit_year" value="<?php echo htmlspecialchars(oldInput('permit_year')); ?>">
-                <input type="hidden" name="permit_number" id="permit_number" value="<?php echo htmlspecialchars(oldInput('permit_number')); ?>">
-                <input type="hidden" name="permit_issued_on" id="permit_issued_on" value="<?php echo htmlspecialchars(oldInput('permit_issued_on')); ?>">
-
-                <input
-                    type="file"
-                    name="business_permit"
-                    id="business_permit"
-                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                    style="display:none;"
-                    disabled
-                >
-
-                <div class="permit-actions">
-                    <button type="button" class="permit-button" id="choose_permit_button">
-                        <span id="permit_text">Upload Business Permit</span>
-                        <i class="fa fa-upload"></i>
-                    </button>
-                    <button type="button" class="permit-button permit-camera-button" id="capture_permit_button">
-                        <span>Take Photo</span>
-                        <i class="fa fa-camera"></i>
-                    </button>
-                </div>
-
-                <small class="permit-help">Upload an image or take a clear photo of the permit. The QR code will be scanned automatically.</small>
-                <small class="permit-status" id="permit_status"></small>
-
-            </div>
-
             <button type="submit" name="register">Sign Up</button>
         </form>
     </div>
@@ -640,6 +639,7 @@ $conn->close();
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 const container = document.getElementById('container');
 const accountType = document.getElementById('account_type');
@@ -826,6 +826,48 @@ function toIsoDate(date){
     return `${year}-${month}-${day}`;
 }
 
+function normalizePermitText(text){
+    return text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function cleanExtractedStoreName(storeName){
+    return storeName
+        .replace(/^[\s:;,.|-]+|[\s:;,.|-]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function extractStoreNameFromPermitText(text){
+    const normalized = normalizePermitText(text);
+    const match = normalized.match(/\bPERMIT\s+HERE\s+GRANTED\s+TO\s+(.+?)\s+OF\b/i);
+
+    if(match && match[1]){
+        return cleanExtractedStoreName(match[1]);
+    }
+
+    const fallback = normalized.match(/\bGRANTED\s+TO\s+(.+?)(?:\s+OF\b|\s+TO\s+ENGAGE\b|[.])/i);
+    return fallback && fallback[1] ? cleanExtractedStoreName(fallback[1]) : '';
+}
+
+async function extractStoreNameFromPermitImage(file){
+    if(!window.Tesseract || typeof window.Tesseract.recognize !== 'function'){
+        throw new Error('Store name scanner failed to load. You can still type the store name manually.');
+    }
+
+    const result = await window.Tesseract.recognize(file, 'eng');
+    const storeName = extractStoreNameFromPermitText(result?.data?.text || '');
+
+    if(!storeName){
+        throw new Error('Store name was not detected. You can type it manually.');
+    }
+
+    return storeName;
+}
+
 function extractPermitQrData(qrText){
     const fields = splitQrFields(qrText);
 
@@ -932,15 +974,23 @@ permitInput.addEventListener('change', async function(){
         return;
     }
 
-    setPermitStatus('Scanning QR code...', '');
+    setPermitStatus('Scanning permit...', '');
 
     try {
-        const qrText = await scanQrFromImage(file);
+        const [qrText, detectedStoreName] = await Promise.all([
+            scanQrFromImage(file),
+            extractStoreNameFromPermitImage(file).catch(() => '')
+        ]);
         const qrData = extractPermitQrData(qrText);
 
         permitYearInput.value = qrData.permitYear;
         permitNumberInput.value = qrData.permitNumber;
         permitIssuedOnInput.value = qrData.permitIssuedOn;
+
+        if(detectedStoreName){
+            businessNameInput.value = detectedStoreName;
+        }
+
         setPermitStatus(
             `Permit ${qrData.permitNumber} (${qrData.permitYear}) issued on ${qrData.permitIssuedOn}.`,
             'success'

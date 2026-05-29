@@ -67,8 +67,97 @@ function notificationSnippet(string $text, int $limit = 70): string
     return rtrim(substr($text, 0, $limit - 3)) . "...";
 }
 
+function newEventNotificationRows(mysqli $conn): array
+{
+    $newEventStmt = $conn->prepare("
+        SELECT
+            id,
+            event_code,
+            title,
+            start_date_and_time,
+            created_at
+        FROM events
+        WHERE start_date_and_time >= NOW()
+        ORDER BY COALESCE(created_at, start_date_and_time) DESC, id DESC
+        LIMIT 20
+    ");
+
+    if (!$newEventStmt) {
+        return [];
+    }
+
+    $newEventStmt->execute();
+    $result = $newEventStmt->get_result();
+    $events = [];
+
+    while ($row = $result->fetch_assoc()) {
+        $eventTitle = (string) ($row['title'] ?? 'New event');
+        $eventCode = trim((string) ($row['event_code'] ?? ''));
+        $schedule = date("M d, Y h:i A", strtotime((string) ($row['start_date_and_time'] ?? '')));
+        $codeText = $eventCode !== "" ? " Code: " . $eventCode . "." : "";
+
+        $events[] = [
+            "title" => "New Event",
+            "message" => "New event posted: " . $eventTitle . ". Schedule: " . $schedule . "." . $codeText
+        ];
+    }
+
+    $newEventStmt->close();
+
+    return $events;
+}
+
+function syncNewEventNotificationsForUser(mysqli $conn, int $userId, string $accountType): void
+{
+    foreach (newEventNotificationRows($conn) as $eventNotification) {
+        insertNotification(
+            $conn,
+            $userId,
+            $accountType,
+            $eventNotification['title'],
+            $eventNotification['message']
+        );
+    }
+}
+
+function syncNewEventNotificationsForAllUsers(mysqli $conn): void
+{
+    $eventNotifications = newEventNotificationRows($conn);
+
+    if (empty($eventNotifications)) {
+        return;
+    }
+
+    $recipientQueries = [
+        "consumer" => "SELECT c_id AS user_id FROM consumers",
+        "business_owner" => "SELECT b_id AS user_id FROM business_owner"
+    ];
+
+    foreach ($recipientQueries as $accountType => $sql) {
+        $result = $conn->query($sql);
+
+        if (!$result) {
+            continue;
+        }
+
+        while ($recipient = $result->fetch_assoc()) {
+            foreach ($eventNotifications as $eventNotification) {
+                insertNotification(
+                    $conn,
+                    (int) $recipient['user_id'],
+                    $accountType,
+                    $eventNotification['title'],
+                    $eventNotification['message']
+                );
+            }
+        }
+    }
+}
+
 function syncEventNotifications(mysqli $conn, int $userId, string $accountType): void
 {
+    syncNewEventNotificationsForUser($conn, $userId, $accountType);
+
     $stmt = $conn->prepare("
         SELECT
             id,
@@ -76,8 +165,7 @@ function syncEventNotifications(mysqli $conn, int $userId, string $accountType):
             start_date_and_time,
             DATEDIFF(DATE(start_date_and_time), CURDATE()) AS days_until
         FROM events
-        WHERE status = 'Active'
-          AND start_date_and_time >= NOW()
+        WHERE start_date_and_time >= NOW()
           AND start_date_and_time < DATE_ADD(NOW(), INTERVAL 4 DAY)
         ORDER BY start_date_and_time ASC
         LIMIT 10
@@ -234,6 +322,7 @@ function syncConsumerNotifications(mysqli $conn, int $consumerId): void
 
 function syncNotificationsForUser(mysqli $conn, int $userId, string $accountType): void
 {
+    syncNewEventNotificationsForAllUsers($conn);
     syncEventNotifications($conn, $userId, $accountType);
 
     if ($accountType === "business_owner") {

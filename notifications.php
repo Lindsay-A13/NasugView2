@@ -7,6 +7,67 @@ require_once "config/notifications_helper.php";
 $user_id = $_SESSION['user_id'];
 $account_type = $_SESSION['account_type'];
 
+if (isset($_GET['open'])) {
+    $notificationId = (int) $_GET['open'];
+    $targetLink = "notifications.php";
+
+    if ($notificationId > 0) {
+        $find = $conn->prepare("
+            SELECT title
+            FROM notifications
+            WHERE id = ? AND user_id = ? AND account_type = ?
+            LIMIT 1
+        ");
+
+        if ($find) {
+            $find->bind_param("iis", $notificationId, $user_id, $account_type);
+            $find->execute();
+            $notification = $find->get_result()->fetch_assoc();
+            $find->close();
+
+            if ($notification) {
+                $update = $conn->prepare("
+                    UPDATE notifications
+                    SET is_read = 1
+                    WHERE id = ? AND user_id = ? AND account_type = ?
+                ");
+
+                if ($update) {
+                    $update->bind_param("iis", $notificationId, $user_id, $account_type);
+                    $update->execute();
+                    $update->close();
+                }
+
+                $targetLink = notificationLink((string) ($notification['title'] ?? ''), (string) $account_type);
+            }
+        }
+    }
+
+    header("Location: " . $targetLink);
+    exit;
+}
+
+if (isset($_POST['mark_read'])) {
+    $notificationId = (int) $_POST['mark_read'];
+
+    if ($notificationId > 0) {
+        $update = $conn->prepare("
+            UPDATE notifications
+            SET is_read = 1
+            WHERE id = ? AND user_id = ? AND account_type = ?
+        ");
+
+        if ($update) {
+            $update->bind_param("iis", $notificationId, $user_id, $account_type);
+            $update->execute();
+            $update->close();
+        }
+    }
+
+    http_response_code(204);
+    exit;
+}
+
 if (isset($_GET['read'])) {
     $update = $conn->prepare("
         UPDATE notifications
@@ -169,7 +230,7 @@ body{margin:0;font-family:Arial;background:#f5f7fb;}
             $group = groupLabel($dateOnly);
             $time = date("h:i A", strtotime($notif['created_at']));
             $date = date("m/d/Y", strtotime($notif['created_at']));
-            $targetLink = notificationLink((string) ($notif['title'] ?? ''), (string) $account_type);
+            $targetLink = "notifications.php?open=" . (int) $notif['id'];
             ?>
 
             <?php if ($group !== $currentGroup): ?>
@@ -177,7 +238,11 @@ body{margin:0;font-family:Arial;background:#f5f7fb;}
                 <?php $currentGroup = $group; ?>
             <?php endif; ?>
 
-            <a href="<?= htmlspecialchars($targetLink) ?>" class="notif-card <?= ((int) $notif['is_read'] === 0) ? 'unread' : '' ?>">
+            <a
+                href="<?= htmlspecialchars($targetLink) ?>"
+                class="notif-card <?= ((int) $notif['is_read'] === 0) ? 'unread' : '' ?>"
+                data-notification-id="<?= (int) $notif['id'] ?>"
+            >
                 <div class="notif-title"><?= htmlspecialchars($notif['title']) ?></div>
                 <div class="notif-message"><?= htmlspecialchars($notif['message']) ?></div>
                 <div class="notif-footer">
@@ -191,5 +256,61 @@ body{margin:0;font-family:Arial;background:#f5f7fb;}
 
 <?php include 'bottom_nav.php'; ?>
 
+<script>
+function decrementUnreadBadges(){
+    document.querySelectorAll('.badge').forEach(badge => {
+        const currentValue = badge.textContent.trim();
+
+        if(currentValue === '99+'){
+            return;
+        }
+
+        const currentCount = parseInt(currentValue, 10);
+
+        if(!Number.isFinite(currentCount)){
+            return;
+        }
+
+        const nextCount = Math.max(0, currentCount - 1);
+
+        if(nextCount === 0){
+            badge.remove();
+        } else {
+            badge.textContent = String(nextCount);
+        }
+    });
+}
+
+document.querySelectorAll('.notif-card').forEach(card => {
+    card.addEventListener('click', () => {
+        const notificationId = card.dataset.notificationId;
+        const wasUnread = card.classList.contains('unread');
+
+        card.classList.remove('unread');
+
+        if(wasUnread){
+            decrementUnreadBadges();
+        }
+
+        if(!notificationId){
+            return;
+        }
+
+        const data = new FormData();
+        data.append('mark_read', notificationId);
+
+        if(navigator.sendBeacon){
+            navigator.sendBeacon('notifications.php', data);
+            return;
+        }
+
+        fetch('notifications.php', {
+            method: 'POST',
+            body: data,
+            keepalive: true
+        }).catch(() => {});
+    });
+});
+</script>
 </body>
 </html>

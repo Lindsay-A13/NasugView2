@@ -49,6 +49,27 @@ if(isset($_POST['add_category'])){
     exit;
 }
 
+/* UPDATE CATEGORY */
+if(isset($_POST['update_category'])){
+
+    $category_id = (int) ($_POST['category_id'] ?? 0);
+    $cat = trim($_POST['category'] ?? '');
+
+    if($category_id > 0 && $cat != ""){
+        $stmt = $conn->prepare("
+            UPDATE inventory_categories
+            SET name=?
+            WHERE id=? AND owner_id=?
+        ");
+        $stmt->bind_param("sii", $cat, $category_id, $owner_id);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    header("Location: inventory.php?tab=categories");
+    exit;
+}
+
 /* ADD SERVICE */
 if(isset($_POST['add_service'])){
 
@@ -365,6 +386,34 @@ if(isset($_GET['delete'])){
     $stmt->execute();
 
     header("Location: inventory.php?tab=list");
+    exit;
+}
+
+/* DELETE CATEGORY */
+if(isset($_GET['delete_category'])){
+
+    $category_id = (int) $_GET['delete_category'];
+
+    if($category_id > 0){
+        $clear = $conn->prepare("
+            UPDATE inventory
+            SET category_id=NULL
+            WHERE category_id=? AND owner_id=?
+        ");
+        $clear->bind_param("ii", $category_id, $owner_id);
+        $clear->execute();
+        $clear->close();
+
+        $stmt = $conn->prepare("
+            DELETE FROM inventory_categories
+            WHERE id=? AND owner_id=?
+        ");
+        $stmt->bind_param("ii", $category_id, $owner_id);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    header("Location: inventory.php?tab=categories");
     exit;
 }
 
@@ -732,16 +781,23 @@ No products found
 <?php endif; ?>
 <?php if($tab=="categories"): ?>
 
-<form method="POST" class="category-form">
+<form method="POST" class="category-form" id="categoryForm">
+
+<input type="hidden" name="category_id" id="category_id">
 
 <input
 name="category"
+id="category_name"
 placeholder="Enter new category"
 required
 >
 
-<button name="add_category">
+<button name="add_category" id="categorySubmitBtn">
 Add Category
+</button>
+
+<button type="button" class="category-cancel-btn" id="categoryCancelBtn" onclick="resetCategoryForm()" style="display:none;">
+Cancel
 </button>
 
 </form>
@@ -750,7 +806,12 @@ Add Category
 
 <table>
 
-
+<thead>
+<tr>
+<th>Category</th>
+<th>Action</th>
+</tr>
+</thead>
 
 <tbody>
 
@@ -761,6 +822,20 @@ while($cat=$categories->fetch_assoc()):
 
 <tr>
 <td><?= htmlspecialchars($cat['name']) ?></td>
+<td>
+<div class="action-wrapper">
+<div class="action-btn" onclick='editCategory(<?= (int) $cat["id"] ?>, <?= json_encode($cat["name"]) ?>)'>
+<i class="fa-solid fa-pen"></i>
+</div>
+<a
+href="?delete_category=<?= (int) $cat['id'] ?>"
+class="action-btn category-delete-action"
+onclick="return confirm('Delete this category? Products using it will become uncategorized.');"
+>
+<i class="fa-solid fa-trash"></i>
+</a>
+</div>
+</td>
 </tr>
 
 <?php endwhile; ?>
@@ -1844,8 +1919,40 @@ row.style.display="none";
 
 }
 
+function editCategory(id, name){
+    const idInput = document.getElementById("category_id");
+    const nameInput = document.getElementById("category_name");
+    const submitBtn = document.getElementById("categorySubmitBtn");
+    const cancelBtn = document.getElementById("categoryCancelBtn");
 
+    if(!idInput || !nameInput || !submitBtn || !cancelBtn){
+        return;
+    }
 
+    idInput.value = id;
+    nameInput.value = name;
+    nameInput.focus();
+    submitBtn.name = "update_category";
+    submitBtn.textContent = "Update Category";
+    cancelBtn.style.display = "inline-flex";
+}
+
+function resetCategoryForm(){
+    const idInput = document.getElementById("category_id");
+    const nameInput = document.getElementById("category_name");
+    const submitBtn = document.getElementById("categorySubmitBtn");
+    const cancelBtn = document.getElementById("categoryCancelBtn");
+
+    if(!idInput || !nameInput || !submitBtn || !cancelBtn){
+        return;
+    }
+
+    idInput.value = "";
+    nameInput.value = "";
+    submitBtn.name = "add_category";
+    submitBtn.textContent = "Add Category";
+    cancelBtn.style.display = "none";
+}
 
 </script>
 

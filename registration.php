@@ -14,10 +14,97 @@ $event_code = normalizeEventCode((string) ($_GET['event_code'] ?? $_GET['code'] 
 $event_title = "";
 $show_success_modal = false;
 $isAlreadyRegistered = false;
+$isPastEvent = false;
 
 $existing_user = null;
+$prefill = [
+    'email' => $email ?? '',
+    'first_name' => $fname ?? '',
+    'last_name' => $lname ?? '',
+    'contact_number' => '',
+    'age' => '',
+    'sex' => ''
+];
 
-$email_check = trim((string) ($_GET['email'] ?? ($email ?? '')));
+function eventRegistrationValue(string $key, array $prefill): string {
+    return isset($_POST[$key]) ? trim((string) $_POST[$key]) : (string) ($prefill[$key] ?? '');
+}
+
+function normalizePrefillContactNumber(string $value): string {
+    $digits = preg_replace('/\D+/', '', $value);
+
+    if(strlen($digits) === 12 && substr($digits, 0, 2) === '63'){
+        return '0' . substr($digits, 2);
+    }
+
+    return strlen($digits) > 11 ? substr($digits, -11) : $digits;
+}
+
+function accountPrefillColumn(mysqli $conn, string $table, array $candidates): ?string {
+    foreach($candidates as $candidate){
+        if(databaseColumnExists($conn, $table, $candidate)){
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
+if(isset($_SESSION['user_id'], $_SESSION['account_type'])){
+    $accountTable = $_SESSION['account_type'] === 'business_owner' ? 'business_owner' : 'consumers';
+    $accountIdColumn = $_SESSION['account_type'] === 'business_owner' ? 'b_id' : 'c_id';
+    $selectColumns = ['fname', 'lname', 'email'];
+
+    $genderColumn = accountPrefillColumn($conn, $accountTable, ['gender', 'sex']);
+    $birthdayColumn = accountPrefillColumn($conn, $accountTable, ['birthday', 'birthdate', 'date_of_birth']);
+    $phoneColumn = accountPrefillColumn($conn, $accountTable, ['phone', 'contact_number', 'mobile', 'contact']);
+
+    if($genderColumn){
+        $selectColumns[] = $genderColumn . " AS prefill_gender";
+    }
+
+    if($birthdayColumn){
+        $selectColumns[] = $birthdayColumn . " AS prefill_birthday";
+    }
+
+    if($phoneColumn){
+        $selectColumns[] = $phoneColumn . " AS prefill_phone";
+    }
+
+    $accountPrefillStmt = $conn->prepare("
+        SELECT " . implode(', ', $selectColumns) . "
+        FROM {$accountTable}
+        WHERE {$accountIdColumn} = ?
+        LIMIT 1
+    ");
+
+    if($accountPrefillStmt){
+        $accountPrefillStmt->bind_param("i", $_SESSION['user_id']);
+        $accountPrefillStmt->execute();
+        $accountPrefillResult = $accountPrefillStmt->get_result();
+
+        if($accountPrefillRow = $accountPrefillResult->fetch_assoc()){
+            $prefill['email'] = (string) ($accountPrefillRow['email'] ?? $prefill['email']);
+            $prefill['first_name'] = (string) ($accountPrefillRow['fname'] ?? $prefill['first_name']);
+            $prefill['last_name'] = (string) ($accountPrefillRow['lname'] ?? $prefill['last_name']);
+            $prefill['sex'] = (string) ($accountPrefillRow['prefill_gender'] ?? '');
+            $prefill['contact_number'] = normalizePrefillContactNumber((string) ($accountPrefillRow['prefill_phone'] ?? ''));
+
+            if(!empty($accountPrefillRow['prefill_birthday'])){
+                try {
+                    $birthDate = new DateTime((string) $accountPrefillRow['prefill_birthday']);
+                    $prefill['age'] = (string) (new DateTime())->diff($birthDate)->y;
+                } catch (Throwable $e) {
+                    $prefill['age'] = '';
+                }
+            }
+        }
+
+        $accountPrefillStmt->close();
+    }
+}
+
+$email_check = trim((string) ($_GET['email'] ?? $prefill['email']));
 
 if($event_code === "" && $event_id > 0){
     $eventById = $conn->prepare("
@@ -68,6 +155,12 @@ if($event_code !== ""){
         $event_id = (int) $event['id'];
         $event_code = normalizeEventCode($event['event_code']);
         $event_title = $event['title'];
+        $eventDate = date("Y-m-d", strtotime((string) $event['start_date_and_time']));
+        $isPastEvent = $eventDate < date("Y-m-d");
+
+        if($isPastEvent && $error === ""){
+            $error = "Registration is closed because this event date has already passed.";
+        }
     }else{
         $error = "Event not found.";
     }
@@ -120,19 +213,24 @@ $residence = $barangay . ', ' . $city . ', ' . $province;
         $event_id = (int) $submitted_event['id'];
         $event_code = normalizeEventCode($submitted_event['event_code']);
         $event_title = $submitted_event['title'];
+        $submittedEventDate = date("Y-m-d", strtotime((string) $submitted_event['start_date_and_time']));
+        $isPastEvent = $submittedEventDate < date("Y-m-d");
     }
 
     /* VALIDATION */
-    if(
+    if(!$submitted_event){
+        $error = "Event not found.";
+    }
+    else if($isPastEvent){
+        $error = "Registration is closed because this event date has already passed.";
+    }
+    else if(
         $event_code=="" || $email=="" || $first_name=="" || $last_name=="" ||
         $contact_number=="" || $negosyo_center=="" ||
         $age<=0 || $sex=="" || $social_classification=="" ||
         $residence=="" || $position==""
     ){
         $error = "Please fill all required fields.";
-    }
-    else if(!$submitted_event){
-        $error = "Event not found.";
     }
     else if($agreed_terms == 0){
         $error = "You must agree to the terms and agreement.";
@@ -620,19 +718,19 @@ Please complete the form below to register for this event.
             <input
                 type="email"
                 name="email"
-                value="<?php echo htmlspecialchars($_POST['email'] ?? $email_check); ?>"
+                value="<?php echo htmlspecialchars(eventRegistrationValue('email', $prefill)); ?>"
                 required
             >
         </div>
 
         <div class="form-field">
             <label>First Name <span class="required">*</span></label>
-            <input type="text" name="first_name" required>
+            <input type="text" name="first_name" value="<?php echo htmlspecialchars(eventRegistrationValue('first_name', $prefill)); ?>" required>
         </div>
 
         <div class="form-field">
             <label>Last Name <span class="required">*</span></label>
-            <input type="text" name="last_name" required>
+            <input type="text" name="last_name" value="<?php echo htmlspecialchars(eventRegistrationValue('last_name', $prefill)); ?>" required>
         </div>
 
         <div class="form-field">
@@ -644,22 +742,24 @@ Please complete the form below to register for this event.
                 pattern="[0-9]{11}"
                 inputmode="numeric"
                 oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)"
+                value="<?php echo htmlspecialchars(eventRegistrationValue('contact_number', $prefill)); ?>"
                 required
             >
         </div>
 
         <div class="form-field">
             <label>Age <span class="required">*</span></label>
-            <input type="number" name="age" required>
+            <input type="number" name="age" value="<?php echo htmlspecialchars(eventRegistrationValue('age', $prefill)); ?>" required>
         </div>
 
         <div class="form-field">
             <label>Sex <span class="required">*</span></label>
+            <?php $selectedSex = eventRegistrationValue('sex', $prefill); ?>
             <select name="sex" required>
                 <option value="">Select</option>
-                <option>Male</option>
-                <option>Female</option>
-                <option>Other</option>
+                <option value="Male" <?php echo strcasecmp($selectedSex, 'Male') === 0 ? 'selected' : ''; ?>>Male</option>
+                <option value="Female" <?php echo strcasecmp($selectedSex, 'Female') === 0 ? 'selected' : ''; ?>>Female</option>
+                <option value="Other" <?php echo strcasecmp($selectedSex, 'Other') === 0 || strcasecmp($selectedSex, 'Prefer not to Say') === 0 ? 'selected' : ''; ?>>Other</option>
             </select>
         </div>
 
@@ -762,8 +862,8 @@ Please complete the form below to register for this event.
 </div>
 
 <button type="submit" name="submit_registration"
-<?php echo $isAlreadyRegistered ? 'disabled style="background:gray;cursor:not-allowed;"' : ''; ?>>
-<?php echo $isAlreadyRegistered ? 'Already Registered' : 'Submit Registration'; ?>
+<?php echo ($isAlreadyRegistered || $isPastEvent) ? 'disabled style="background:gray;cursor:not-allowed;"' : ''; ?>>
+<?php echo $isAlreadyRegistered ? 'Already Registered' : ($isPastEvent ? 'Registration Closed' : 'Submit Registration'); ?>
 </button>
 
 </form>

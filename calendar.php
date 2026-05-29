@@ -31,6 +31,7 @@ $result = $stmt->get_result();
 while($row = $result->fetch_assoc()){
 
     $dateOnly = date("Y-m-d", strtotime($row['start_date_and_time']));
+    $isPast = $dateOnly < date("Y-m-d");
 
     $events[] = [
         "event_id" => $row['id'],
@@ -38,6 +39,7 @@ while($row = $result->fetch_assoc()){
         "title" => $row['title'],
         "description" => $row['description'],
         "event_date" => $dateOnly,
+        "is_past" => $isPast,
         "mode_of_delivery" => $row['mode_of_delivery'],
         "speaker" => $row['speaker'],
         "duration" => $row['duration']
@@ -278,7 +280,7 @@ function renderSlide(){
     }
 
     const showRegisterButton =
-        !allThreeMissing(event) && hasValue(event.event_code);
+        !allThreeMissing(event) && hasValue(event.event_code) && !event.is_past;
 
     sliderBody.innerHTML = `
     <div class="event-content">
@@ -294,6 +296,8 @@ function renderSlide(){
     ${
         showRegisterButton
         ? `<button class="register-btn" onclick="registerEvent('${event.event_code}')">Register</button>`
+        : event.is_past
+            ? `<button class="register-btn register-btn-disabled" disabled>Registration Closed</button>`
         : ``
     }
     `;

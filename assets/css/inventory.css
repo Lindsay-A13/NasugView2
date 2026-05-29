@@ -167,6 +167,16 @@ font-weight:600;
 cursor:pointer;
 }
 
+.category-form .category-cancel-btn{
+background:#eef1f7;
+color:#001a47;
+}
+
+.category-delete-action{
+color:#b42318;
+text-decoration:none;
+}
+
 .card{
 background:#fff;
 border-radius:12px;
