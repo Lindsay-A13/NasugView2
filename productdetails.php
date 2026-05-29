@@ -389,11 +389,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 <a href="businessdetails.php?id=<?= (int) $product['business_id'] ?>" class="action-btn primary">
 <i class="fa fa-store"></i> Visit Business
 </a>
-<?php if(!empty($product['address'])): ?>
-<a href="<?= htmlspecialchars($mapLink) ?>" target="_blank" class="action-btn secondary">
-<i class="fa fa-location-dot"></i> Open Map
-</a>
-<?php endif; ?>
+
 </div>
 
 <div class="purchase-card">
@@ -429,26 +425,7 @@ Choose your quantity and add this item directly to your cart.
 
 <div class="info-grid">
 <div class="panel">
-<h2>Business Info</h2>
-<div class="business-card">
-<img src="<?= htmlspecialchars($businessImage) ?>" class="business-photo" alt="<?= htmlspecialchars($product['business_name']) ?>">
-<div>
-<div class="business-name"><?= htmlspecialchars($product['business_name']) ?></div>
-<div class="business-copy"><?= htmlspecialchars($product['business_description'] ?? 'No business description available.') ?></div>
-</div>
-</div>
 
-<div class="details-list" style="margin-top:16px;">
-<?php if(!empty($product['phone'])): ?>
-<div class="details-item"><i class="fa fa-phone"></i><span><?= htmlspecialchars($product['phone']) ?></span></div>
-<?php endif; ?>
-<?php if(!empty($product['address'])): ?>
-<div class="details-item"><i class="fa fa-location-dot"></i><span><?= htmlspecialchars($product['address']) ?></span></div>
-<?php endif; ?>
-</div>
-</div>
-
-<div class="panel">
 <h2>Product Details</h2>
 <div class="details-list">
 <div class="details-item"><i class="fa fa-tag"></i><span><?= htmlspecialchars(ucfirst($product['type'] ?? 'Product')) ?></span></div>

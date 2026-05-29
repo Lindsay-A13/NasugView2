@@ -76,32 +76,52 @@ $product_stmt = $conn->prepare("
         i.price,
         i.image,
         i.owner_id,
+
         ic.id AS inventory_category_id,
-        ic.name AS inventory_category_name,
+        COALESCE(ic.name, 'Uncategorized') AS inventory_category_name,
+
         c.category_id,
         c.category_name,
+
         b.business_name,
         b.address,
         b.latitude,
         b.longitude,
+
         COALESCE(pr.avg_rating, 0) AS avg_rating,
         COALESCE(pr.total_reviews, 0) AS total_reviews
+
     FROM inventory i
+
     INNER JOIN business_owner b
         ON i.owner_id = b.b_id
-    INNER JOIN categories c
+
+    LEFT JOIN categories c
         ON b.category_id = c.category_id
-    INNER JOIN inventory_categories ic
+
+    LEFT JOIN inventory_categories ic
         ON i.category_id = ic.id
+       AND ic.owner_id = i.owner_id
+
     LEFT JOIN (
-        SELECT product_id, ROUND(AVG(rating),1) AS avg_rating, COUNT(*) AS total_reviews
+        SELECT 
+            product_id, 
+            ROUND(AVG(rating), 1) AS avg_rating, 
+            COUNT(*) AS total_reviews
         FROM product_reviews
         GROUP BY product_id
     ) pr
         ON pr.product_id = i.id
+
+    WHERE i.type = 'product'
+
     ORDER BY i.created_at DESC
 ");
-if(!$product_stmt){ die("Product Query Error: " . $conn->error); }
+
+if(!$product_stmt){
+    die("Product Query Error: " . $conn->error);
+}
+
 $product_stmt->execute();
 $products = $product_stmt->get_result();
 
@@ -247,6 +267,64 @@ html,body{margin:0;padding:0;overflow-x:hidden;font-family:Arial,sans-serif;back
 .distance-line{font-size:12px;line-height:1.35;color:#0f766e;margin-top:6px;font-weight:600}
 
 .hidden{display:none}
+
+.scroll-top-btn{
+position:fixed;
+bottom:90px;
+right:18px;
+width:52px;
+height:52px;
+border:none;
+border-radius:50%;
+background:#001a47;
+color:#fff;
+font-size:20px;
+cursor:pointer;
+display:flex;
+align-items:center;
+justify-content:center;
+box-shadow:0 10px 25px rgba(0,0,0,0.25);
+z-index:999;
+opacity:0;
+visibility:hidden;
+transform:translateY(20px);
+transition:all .25s ease;
+}
+
+.scroll-top-btn.show{
+opacity:1;
+visibility:visible;
+transform:translateY(0);
+}
+
+.scroll-top-btn:hover{
+background:#00307a;
+}
+
+.sticky-filter-area{
+position:sticky;
+top:0;
+z-index:900;
+background:#fff;
+padding-bottom:8px;
+box-shadow:0 8px 18px rgba(0,0,0,0.06);
+}
+
+@media(max-width:768px){
+.sticky-filter-area{
+top:0;
+}
+}
+
+@media(max-width:768px){
+.scroll-top-btn{
+bottom:85px;
+right:14px;
+width:48px;
+height:48px;
+font-size:18px;
+}
+}
 
 @media (max-width: 768px){
   .topbar{padding:14px 0 8px}
@@ -478,6 +556,10 @@ $img = !empty($biz['business_photo'])
 
 <?php include 'bottom_nav.php'; ?>
 
+<button id="scrollTopBtn" class="scroll-top-btn">
+<i class="fa fa-arrow-up"></i>
+</button>
+
 <script>
 const searchInput = document.getElementById('searchInput');
 const categoryBtns = document.querySelectorAll('.category-btn');
@@ -489,6 +571,27 @@ if(priceSort && priceSort.options.length >= 3){
   priceSort.options[1].text = "Low to High";
   priceSort.options[2].text = "High to Low";
 }
+
+const scrollTopBtn = document.getElementById("scrollTopBtn");
+
+window.addEventListener("scroll", function(){
+
+  if(window.scrollY > 400){
+    scrollTopBtn.classList.add("show");
+  }else{
+    scrollTopBtn.classList.remove("show");
+  }
+
+});
+
+scrollTopBtn.addEventListener("click", function(){
+
+  window.scrollTo({
+    top:0,
+    behavior:"smooth"
+  });
+
+});
 
 let activeCategory = "all";
 let activeRating = null;
@@ -881,6 +984,8 @@ starBtns.forEach(btn => {
 priceSort.addEventListener("change", () => {
   sortByPrice();
 });
+
+
 
 function sortByPrice(){
 

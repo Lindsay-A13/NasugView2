@@ -8,6 +8,118 @@ if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['user_id'])){
     $user_id = (int) $_SESSION['user_id'];
     $business_id = (int) ($_POST['business_id'] ?? 0);
 
+    if(isset($_POST['update_review'])){
+        $review_id = (int) ($_POST['review_id'] ?? 0);
+        $comment = trim($_POST['comment'] ?? '');
+        $anonymous = isset($_POST['anonymous']) ? 1 : 0;
+        $uses_rating = (int) ($_POST['uses_rating'] ?? 0) === 1;
+        $rating = $uses_rating ? (int) ($_POST['experience_rating'] ?? 0) : null;
+
+        if($review_id > 0 && $business_id > 0 && $comment !== '' && (!$uses_rating || ($rating >= 1 && $rating <= 5))){
+            $current_images = [];
+            $image_stmt = $conn->prepare("
+                SELECT images
+                FROM reviews
+                WHERE id = ? AND user_id = ? AND business_id = ?
+            ");
+            $image_stmt->bind_param("iii", $review_id, $user_id, $business_id);
+            $image_stmt->execute();
+            $image_row = $image_stmt->get_result()->fetch_assoc();
+            $image_stmt->close();
+
+            if(!$image_row){
+                header("Location: businessdetails.php?id=" . $business_id . "&review=invalid");
+                exit();
+            }
+
+            $current_images = array_values(array_filter(array_map('trim', explode(',', (string) ($image_row['images'] ?? '')))));
+
+            $posted_keep_images = $_POST['keep_images'] ?? [];
+            if(!is_array($posted_keep_images)){
+                $posted_keep_images = [];
+            }
+
+            $keep_images = [];
+            foreach($posted_keep_images as $keep_image){
+                $keep_image = basename(trim((string) $keep_image));
+                if($keep_image !== '' && in_array($keep_image, $current_images, true)){
+                    $keep_images[] = $keep_image;
+                }
+            }
+            $keep_images = array_values(array_unique($keep_images));
+
+            $upload_dir = __DIR__ . "/uploads/reviews/";
+            if(!is_dir($upload_dir)){
+                mkdir($upload_dir, 0777, true);
+            }
+
+            $new_images = [];
+            $remaining_slots = max(0, 4 - count($keep_images));
+
+            if($remaining_slots > 0 && isset($_FILES['images']) && !empty($_FILES['images']['name'][0])){
+                $total_files = min(count($_FILES['images']['name']), $remaining_slots);
+
+                for($i = 0; $i < $total_files; $i++){
+                    if($_FILES['images']['error'][$i] === UPLOAD_ERR_OK){
+                        $ext = strtolower(pathinfo($_FILES['images']['name'][$i], PATHINFO_EXTENSION));
+                        $allowed = ['jpg', 'jpeg', 'png', 'webp'];
+
+                        if(in_array($ext, $allowed, true)){
+                            $file_name = time() . "_" . uniqid() . "." . $ext;
+                            $target = $upload_dir . $file_name;
+
+                            if(move_uploaded_file($_FILES['images']['tmp_name'][$i], $target)){
+                                $new_images[] = $file_name;
+                            }
+                        }
+                    }
+                }
+            }
+
+            $final_images = array_merge($keep_images, $new_images);
+            $images_string = count($final_images) > 0 ? implode(',', $final_images) : null;
+
+            $stmt = $conn->prepare("
+                UPDATE reviews
+                SET experience_rating = ?, comment = ?, images = ?, is_anonymous = ?
+                WHERE id = ? AND user_id = ? AND business_id = ?
+            ");
+            $stmt->bind_param("issiiii", $rating, $comment, $images_string, $anonymous, $review_id, $user_id, $business_id);
+            $stmt->execute();
+            $stmt->close();
+
+            foreach(array_diff($current_images, $final_images) as $removed_image){
+                $removed_path = $upload_dir . basename($removed_image);
+                if(is_file($removed_path)){
+                    unlink($removed_path);
+                }
+            }
+
+            header("Location: businessdetails.php?id=" . $business_id . "&review=updated");
+            exit();
+        }
+
+        header("Location: businessdetails.php?id=" . $business_id . "&review=invalid");
+        exit();
+    }
+
+    if(isset($_POST['delete_review'])){
+        $review_id = (int) ($_POST['review_id'] ?? 0);
+
+        if($review_id > 0 && $business_id > 0){
+            $stmt = $conn->prepare("
+                DELETE FROM reviews
+                WHERE id = ? AND user_id = ? AND business_id = ?
+            ");
+            $stmt->bind_param("iii", $review_id, $user_id, $business_id);
+            $stmt->execute();
+            $stmt->close();
+        }
+
+        header("Location: businessdetails.php?id=" . $business_id . "&review=deleted");
+        exit();
+    }
+
     if(isset($_POST['follow'])){
         $stmt = $conn->prepare("
             INSERT IGNORE INTO business_followers (user_id, business_id)
@@ -203,6 +315,7 @@ $followerCount = (int) ($followers['total_followers'] ?? 0);
 $avgRating = (float) ($business['avg_rating'] ?? 0);
 $totalReviews = (int) ($business['total_reviews'] ?? 0);
 $roundedAvgRating = (int) round($avgRating);
+$reviewStatus = $_GET['review'] ?? '';
 $mapLink = "https://www.google.com/maps/search/?api=1&query=" . urlencode($business['address'] ?? '');
 $cover = !empty($business['business_photo'])
     ? "uploads/business_cover/" . $business['business_photo']
@@ -263,6 +376,29 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .review-comment{line-height:1.6;color:#334155;white-space:pre-wrap}
 .review-images{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px;max-width:340px}
 .review-images img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;background:#f8fafc}
+.review-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.review-action-btn{display:inline-flex;align-items:center;gap:7px;border:1px solid #cbd5e1;background:#fff;color:#001a47;border-radius:10px;padding:8px 12px;font:inherit;font-weight:600;cursor:pointer}
+.review-action-btn.danger{border-color:#fecaca;color:#b91c1c}
+.review-status{margin-bottom:14px;padding:12px 14px;border-radius:10px;font-size:14px}
+.review-status.success{background:#ecfdf3;color:#166534;border:1px solid #bbf7d0}
+.review-status.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:3000;align-items:center;justify-content:center;padding:18px}
+.modal-overlay.active{display:flex}
+.modal-content{width:min(100%,480px);background:#fff;border-radius:16px;padding:20px;box-shadow:0 18px 45px rgba(0,0,0,.22)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.modal-title{margin:0;color:#001a47;font-size:18px}
+.modal-close{width:36px;height:36px;border:none;border-radius:50%;background:#f1f5f9;color:#334155;cursor:pointer}
+.edit-stars{display:flex;gap:7px;margin-bottom:12px;color:#cbd5e1;font-size:24px}
+.edit-stars .active{color:#001a47}
+.edit-review-text{width:100%;min-height:130px;border:1px solid #cbd5e1;border-radius:12px;padding:12px;font:inherit;resize:vertical}
+.edit-image-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}
+.edit-image-item{position:relative;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#f8fafc}
+.edit-image-item img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block}
+.edit-image-item label{position:absolute;inset:auto 6px 6px 6px;display:flex;align-items:center;justify-content:center;gap:5px;background:rgba(255,255,255,.92);border-radius:8px;padding:5px;font-size:12px;color:#b91c1c;font-weight:600}
+.edit-file-label{display:inline-flex;align-items:center;gap:8px;margin-top:12px;padding:9px 14px;border:1px solid #cbd5e1;border-radius:10px;color:#001a47;background:#fff;font-weight:600;cursor:pointer}
+.edit-image-note{margin-top:8px;font-size:13px;color:#64748b}
+.modal-check{display:flex;align-items:center;gap:8px;margin:12px 0;color:#334155}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}
 .empty-state{padding:16px;border:1px dashed #cbd5e1;border-radius:14px;background:#f8fafc;color:#64748b}
 @media (max-width:768px){
   .container{padding:16px;padding-bottom:120px}
@@ -423,9 +559,20 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 
 <div class="reviews-section">
 <h2 class="section-title">Reviews</h2>
+<?php if($reviewStatus === 'updated' || $reviewStatus === 'deleted'): ?>
+<div class="review-status success">
+<?= $reviewStatus === 'updated' ? 'Your review has been updated.' : 'Your review has been deleted.' ?>
+</div>
+<?php elseif($reviewStatus === 'invalid'): ?>
+<div class="review-status error">Unable to save your review. Please complete the required fields and try again.</div>
+<?php endif; ?>
 <?php if($reviews->num_rows > 0): ?>
 <div class="review-list">
 <?php while($review = $reviews->fetch_assoc()): ?>
+<?php
+$isOwnReview = isset($_SESSION['user_id']) && (int) $_SESSION['user_id'] === (int) $review['user_id'];
+$reviewUsesRating = $review['experience_rating'] !== null && $review['experience_rating'] !== '';
+?>
 <div class="review-card">
 <div class="review-top">
 <div>
@@ -465,6 +612,31 @@ if(count($reviewImages) > 0):
 <?php endforeach; ?>
 </div>
 <?php endif; ?>
+
+<?php if($isOwnReview): ?>
+<div class="review-actions">
+<button
+    type="button"
+    class="review-action-btn edit-review-btn"
+    data-review-id="<?= (int) $review['id'] ?>"
+    data-business-id="<?= (int) $business['b_id'] ?>"
+    data-rating="<?= $reviewUsesRating ? (int) $review['experience_rating'] : '' ?>"
+    data-uses-rating="<?= $reviewUsesRating ? '1' : '0' ?>"
+    data-comment="<?= htmlspecialchars($review['comment'] ?? '', ENT_QUOTES) ?>"
+    data-images="<?= htmlspecialchars($review['images'] ?? '', ENT_QUOTES) ?>"
+    data-anonymous="<?= (int) $review['is_anonymous'] ?>"
+>
+    <i class="fa fa-pen"></i> Edit
+</button>
+<form method="POST" style="margin:0;" onsubmit="return confirm('Delete your review?');">
+    <input type="hidden" name="business_id" value="<?= (int) $business['b_id'] ?>">
+    <input type="hidden" name="review_id" value="<?= (int) $review['id'] ?>">
+    <button type="submit" name="delete_review" class="review-action-btn danger">
+        <i class="fa fa-trash"></i> Delete
+    </button>
+</form>
+</div>
+<?php endif; ?>
 </div>
 <?php endwhile; ?>
 </div>
@@ -474,6 +646,144 @@ if(count($reviewImages) > 0):
 </div>
 </div>
 
+<div class="modal-overlay" id="editReviewModal">
+<div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="editReviewTitle">
+<div class="modal-head">
+<h3 class="modal-title" id="editReviewTitle">Edit your review</h3>
+<button type="button" class="modal-close" id="closeEditReview" aria-label="Close"><i class="fa fa-times"></i></button>
+</div>
+<form method="POST" id="editReviewForm" enctype="multipart/form-data">
+<input type="hidden" name="business_id" id="editBusinessId">
+<input type="hidden" name="review_id" id="editReviewId">
+<input type="hidden" name="uses_rating" id="editUsesRating">
+<input type="hidden" name="experience_rating" id="editRatingInput">
+<div class="edit-stars" id="editStars" aria-label="Review rating">
+<?php for($i=1;$i<=5;$i++): ?>
+<i class="fa fa-star" data-rating="<?= $i ?>"></i>
+<?php endfor; ?>
+</div>
+<textarea name="comment" id="editComment" class="edit-review-text" required></textarea>
+<div class="edit-image-list" id="editImageList"></div>
+<label class="edit-file-label">
+<i class="fa fa-camera"></i> Add Photos
+<input type="file" name="images[]" id="editImagesInput" accept="image/*" multiple hidden>
+</label>
+<div class="edit-image-note">You can keep, remove, or add photos. Maximum 4 images per review.</div>
+<label class="modal-check">
+<input type="checkbox" name="anonymous" id="editAnonymous">
+Post as Anonymous
+</label>
+<div class="modal-actions">
+<button type="button" class="review-action-btn" id="cancelEditReview">Cancel</button>
+<button type="submit" name="update_review" class="action-btn primary">Save Changes</button>
+</div>
+</form>
+</div>
+</div>
+
 <?php include 'bottom_nav.php'; ?>
+<script>
+const editReviewModal = document.getElementById("editReviewModal");
+const editReviewId = document.getElementById("editReviewId");
+const editBusinessId = document.getElementById("editBusinessId");
+const editUsesRating = document.getElementById("editUsesRating");
+const editRatingInput = document.getElementById("editRatingInput");
+const editComment = document.getElementById("editComment");
+const editAnonymous = document.getElementById("editAnonymous");
+const editStars = document.getElementById("editStars");
+const editImageList = document.getElementById("editImageList");
+const editImagesInput = document.getElementById("editImagesInput");
+
+function setEditRating(value){
+    editRatingInput.value = value || "";
+    editStars.querySelectorAll("i").forEach((star) => {
+        star.classList.toggle("active", Number(star.dataset.rating) <= Number(value));
+    });
+}
+
+function closeEditReviewModal(){
+    editReviewModal.classList.remove("active");
+}
+
+function renderEditImages(images){
+    editImageList.innerHTML = "";
+
+    images.forEach((image) => {
+        const item = document.createElement("div");
+        item.className = "edit-image-item";
+
+        const img = document.createElement("img");
+        img.src = "uploads/reviews/" + image;
+        img.alt = "Review image";
+
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.name = "keep_images[]";
+        checkbox.value = image;
+        checkbox.checked = true;
+
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode("Keep"));
+        item.appendChild(img);
+        item.appendChild(label);
+        editImageList.appendChild(item);
+    });
+}
+
+function keptImageCount(){
+    return editImageList.querySelectorAll('input[name="keep_images[]"]:checked').length;
+}
+
+document.querySelectorAll(".edit-review-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+        const usesRating = button.dataset.usesRating === "1";
+        const images = (button.dataset.images || "")
+            .split(",")
+            .map((image) => image.trim())
+            .filter(Boolean);
+
+        editReviewId.value = button.dataset.reviewId;
+        editBusinessId.value = button.dataset.businessId;
+        editUsesRating.value = usesRating ? "1" : "0";
+        editComment.value = button.dataset.comment || "";
+        editAnonymous.checked = button.dataset.anonymous === "1";
+        editImagesInput.value = "";
+        renderEditImages(images);
+        editStars.style.display = usesRating ? "flex" : "none";
+        setEditRating(usesRating ? button.dataset.rating : "");
+        editReviewModal.classList.add("active");
+        editComment.focus();
+    });
+});
+
+editStars.querySelectorAll("i").forEach((star) => {
+    star.addEventListener("click", () => setEditRating(star.dataset.rating));
+});
+
+editImagesInput.addEventListener("change", function(){
+    const remainingSlots = 4 - keptImageCount();
+
+    if(this.files.length > remainingSlots){
+        alert("You can add up to " + remainingSlots + " more image" + (remainingSlots === 1 ? "." : "s."));
+        this.value = "";
+    }
+});
+
+document.getElementById("editReviewForm").addEventListener("submit", function(event){
+    if(keptImageCount() + editImagesInput.files.length > 4){
+        event.preventDefault();
+        alert("Maximum 4 images per review.");
+    }
+});
+
+document.getElementById("closeEditReview").addEventListener("click", closeEditReviewModal);
+document.getElementById("cancelEditReview").addEventListener("click", closeEditReviewModal);
+editReviewModal.addEventListener("click", (event) => {
+    if(event.target === editReviewModal){
+        closeEditReviewModal();
+    }
+});
+</script>
 </body>
 </html>

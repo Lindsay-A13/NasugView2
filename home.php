@@ -742,11 +742,20 @@ aria-label="Open review image"
 
 <div class="review-header">
 
-<?php if(!$review['is_anonymous'] && !empty($review['profile_picture'])): ?>
-<img src="uploads/profile/<?php echo htmlspecialchars($review['profile_picture']); ?>" class="profile-pic">
-<?php else: ?>
-<img src="assets/images/avatar.jpg" class="profile-pic">
-<?php endif; ?>
+<?php
+$profilePic = "assets/images/default-profile.png";
+
+if(!$review['is_anonymous'] && !empty($review['profile_picture'])){
+
+    $profilePath = "uploads/profile/" . $review['profile_picture'];
+
+    if(file_exists($profilePath)){
+        $profilePic = $profilePath;
+    }
+}
+?>
+
+<img src="<?php echo htmlspecialchars($profilePic); ?>" class="profile-pic">
 
 <div>
 
