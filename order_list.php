@@ -17,7 +17,7 @@ if(isset($_POST['confirm'])){
     $code = trim($_POST['order_code'] ?? '');
 
     $consumerStmt = $conn->prepare("
-        SELECT consumer_id
+        SELECT consumer_id, buyer_account_type
         FROM orders
         WHERE order_code = ? AND business_id = ?
         LIMIT 1
@@ -41,7 +41,7 @@ if(isset($_POST['confirm'])){
         insertNotification(
             $conn,
             (int) $consumerRow['consumer_id'],
-            "consumer",
+            (string) ($consumerRow['buyer_account_type'] ?: "consumer"),
             "Order Status Updated",
             "Your order " . $code . " is now For Payment."
         );
@@ -62,10 +62,10 @@ if(isset($_POST['record_payment'])){
     }
 
     $orderStmt = $conn->prepare("
-        SELECT consumer_id, SUM(quantity * price) AS total_amount
+        SELECT consumer_id, buyer_account_type, SUM(quantity * price) AS total_amount
         FROM orders
         WHERE order_code = ? AND business_id = ? AND status = 'For Payment'
-        GROUP BY consumer_id
+        GROUP BY consumer_id, buyer_account_type
         LIMIT 1
     ");
     $orderStmt->bind_param("si", $code, $owner_id);
@@ -115,7 +115,7 @@ if(isset($_POST['record_payment'])){
         insertNotification(
             $conn,
             (int) $orderRow['consumer_id'],
-            "consumer",
+            (string) ($orderRow['buyer_account_type'] ?: "consumer"),
             "Order Status Updated",
             $paymentMessage
         );
@@ -129,7 +129,7 @@ if(isset($_POST['refund'])){
     $code = trim($_POST['order_code'] ?? '');
 
     $consumerStmt = $conn->prepare("
-        SELECT consumer_id
+        SELECT consumer_id, buyer_account_type
         FROM orders
         WHERE order_code = ? AND business_id = ?
         LIMIT 1
@@ -153,7 +153,7 @@ if(isset($_POST['refund'])){
         insertNotification(
             $conn,
             (int) $consumerRow['consumer_id'],
-            "consumer",
+            (string) ($consumerRow['buyer_account_type'] ?: "consumer"),
             "Order Status Updated",
             "Your order " . $code . " has been marked as Refund."
         );
@@ -173,16 +173,26 @@ if(!in_array($currentTab, $allowedTabs, true)){
 $query = "
     SELECT
         o.*,
-        i.name,
-        i.image,
+        COALESCE(i.name, s.name) AS name,
+        COALESCE(i.image, s.image) AS image,
+        s.duration AS service_duration,
         b.business_name,
         c.username AS consumer_username,
         c.fname AS consumer_fname,
-        c.lname AS consumer_lname
+        c.lname AS consumer_lname,
+        bo.username AS owner_username,
+        bo.fname AS owner_fname,
+        bo.lname AS owner_lname
     FROM orders o
-    JOIN inventory i ON o.product_id = i.id
+    LEFT JOIN inventory i ON o.product_id = i.id
+    LEFT JOIN services s ON o.service_id = s.id
     JOIN business_owner b ON o.business_id = b.b_id
-    LEFT JOIN consumers c ON o.consumer_id = c.c_id
+    LEFT JOIN consumers c
+        ON o.consumer_id = c.c_id
+       AND (o.buyer_account_type = 'consumer' OR o.buyer_account_type IS NULL)
+    LEFT JOIN business_owner bo
+        ON o.consumer_id = bo.b_id
+       AND o.buyer_account_type = 'business_owner'
     WHERE o.business_id = ?
 ";
 
@@ -200,7 +210,10 @@ $result = $stmt->get_result();
 $grouped = [];
 while($row = $result->fetch_assoc()){
     $consumerName = trim(($row['consumer_fname'] ?? '') . ' ' . ($row['consumer_lname'] ?? ''));
-    $row['consumer_name'] = $consumerName !== '' ? $consumerName : ($row['consumer_username'] ?? 'Customer');
+    $ownerName = trim(($row['owner_fname'] ?? '') . ' ' . ($row['owner_lname'] ?? ''));
+    $row['consumer_name'] = $consumerName !== ''
+        ? $consumerName
+        : ($ownerName !== '' ? $ownerName : ($row['consumer_username'] ?? ($row['owner_username'] ?? 'Customer')));
     $grouped[$row['order_code']][] = $row;
 }
 $stmt->close();
@@ -318,11 +331,23 @@ h2{margin:0 0 15px;color:#001a47}
     <?php foreach($items as $item): ?>
         <?php $subtotal = (float) $item['price'] * (int) $item['quantity']; ?>
         <?php $total += $subtotal; ?>
+        <?php
+        $isService = ($item['order_type'] ?? '') === 'service' || !empty($item['service_id']);
+        $imagePath = $isService
+            ? "uploads/services/" . ($item['image'] ?: 'default_service.jpg')
+            : "uploads/product/" . ($item['image'] ?: 'default_product.jpg');
+        ?>
         <div class="order-item">
-            <img src="uploads/product/<?= htmlspecialchars($item['image']) ?>">
+            <img src="<?= htmlspecialchars($imagePath) ?>">
             <div class="item-info">
                 <div><strong><?= htmlspecialchars($item['name']) ?></strong></div>
-                <div>Qty: <?= (int) $item['quantity'] ?></div>
+                <div><?= $isService ? 'Sessions' : 'Qty' ?>: <?= (int) $item['quantity'] ?><?= $isService && !empty($item['unit_label']) ? ' ' . htmlspecialchars($item['unit_label']) . ((int) $item['quantity'] === 1 ? '' : 's') : '' ?></div>
+                <?php if($isService && !empty($item['booking_date'])): ?>
+                <div>Appointment: <?= htmlspecialchars(date("M d, Y", strtotime($item['booking_date']))) ?><?= !empty($item['booking_time']) ? ' ' . htmlspecialchars(date("g:i A", strtotime($item['booking_time']))) : '' ?></div>
+                <?php endif; ?>
+                <?php if($isService && !empty($item['booking_note'])): ?>
+                <div>Note: <?= htmlspecialchars($item['booking_note']) ?></div>
+                <?php endif; ?>
                 <div>&#8369;<?= number_format((float) $item['price'], 2) ?></div>
             </div>
         </div>
@@ -352,7 +377,7 @@ h2{margin:0 0 15px;color:#001a47}
     <div class="actions">
         <?php if($status === "For Payment" || $status === "Completed" || $status === "Refund"): ?>
         <button type="button" class="btn btn-receipt" onclick='openReceiptModal(<?= json_encode($code) ?>)'>
-            Show Pickup Receipt
+            Show Receipt
         </button>
         <?php endif; ?>
 
@@ -447,7 +472,7 @@ function openReceiptModal(orderCode){
     if(status === "Refund") statusColor = "#6b21a8";
 
     let html = `
-        <div class="receipt-title">Pickup Receipt</div>
+        <div class="receipt-title">Order Receipt</div>
         <div class="receipt-ordercode">${orderCode}</div>
         <div class="receipt-status"><span style="color:${statusColor};">Status: ${status}</span></div>
         <div class="receipt-section"><strong>Business:</strong> ${items[0].business_name}</div>
@@ -456,13 +481,18 @@ function openReceiptModal(orderCode){
     `;
 
     items.forEach((item) => {
+        const isService = item.order_type === 'service' || item.service_id;
+        const imagePath = isService ? `uploads/services/${item.image || 'default_service.jpg'}` : `uploads/product/${item.image || 'default_product.jpg'}`;
+        const unitLabel = item.unit_label || (isService ? 'session' : '');
         total += parseFloat(item.price) * parseInt(item.quantity, 10);
         html += `
             <div class="receipt-item">
-                <img src="uploads/product/${item.image}">
+                <img src="${imagePath}">
                 <div class="receipt-item-info">
                     <strong>${item.name}</strong>
-                    Qty: ${item.quantity}<br>
+                    ${isService ? 'Sessions' : 'Qty'}: ${item.quantity}${isService ? ' ' + unitLabel + (parseInt(item.quantity, 10) === 1 ? '' : 's') : ''}<br>
+                    ${isService && item.booking_date ? `Appointment: ${item.booking_date}${item.booking_time ? ' ' + item.booking_time : ''}<br>` : ''}
+                    ${isService && item.booking_note ? `Note: ${item.booking_note}<br>` : ''}
                     &#8369;${parseFloat(item.price).toFixed(2)}
                 </div>
             </div>

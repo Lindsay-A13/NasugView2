@@ -67,8 +67,82 @@ function notificationSnippet(string $text, int $limit = 70): string
     return rtrim(substr($text, 0, $limit - 3)) . "...";
 }
 
-function newEventNotificationRows(mysqli $conn): array
+function notificationColumnExists(mysqli $conn, string $table, string $column): bool
 {
+    $check = $conn->prepare("
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?
+        LIMIT 1
+    ");
+
+    if (!$check) {
+        return false;
+    }
+
+    $check->bind_param("ss", $table, $column);
+    $check->execute();
+    $exists = $check->get_result()->num_rows > 0;
+    $check->close();
+
+    return $exists;
+}
+
+function ensureNotificationStartColumns(mysqli $conn): void
+{
+    $requiredColumns = [
+        "consumers" => "ALTER TABLE consumers ADD COLUMN notification_started_at DATETIME NULL AFTER age",
+        "business_owner" => "ALTER TABLE business_owner ADD COLUMN notification_started_at DATETIME NULL AFTER age"
+    ];
+
+    foreach ($requiredColumns as $table => $sql) {
+        if (!notificationColumnExists($conn, $table, "notification_started_at")) {
+            $conn->query($sql);
+        }
+    }
+}
+
+function notificationStartForUser(mysqli $conn, int $userId, string $accountType): ?string
+{
+    ensureNotificationStartColumns($conn);
+
+    $table = $accountType === "business_owner" ? "business_owner" : "consumers";
+    $idColumn = $accountType === "business_owner" ? "b_id" : "c_id";
+
+    $stmt = $conn->prepare("
+        SELECT notification_started_at
+        FROM {$table}
+        WHERE {$idColumn} = ?
+        LIMIT 1
+    ");
+
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param("i", $userId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    $startedAt = trim((string) ($row['notification_started_at'] ?? ''));
+    return $startedAt !== '' ? $startedAt : null;
+}
+
+function eventCreatedAfterClause(?string $createdAfter): string
+{
+    return $createdAfter !== null && $createdAfter !== ''
+        ? " AND created_at IS NOT NULL AND created_at >= ?"
+        : "";
+}
+
+function newEventNotificationRows(mysqli $conn, ?string $createdAfter = null): array
+{
+    $createdAfter = $createdAfter !== null && trim($createdAfter) !== '' ? trim($createdAfter) : null;
+    $createdAfterClause = eventCreatedAfterClause($createdAfter);
+
     $newEventStmt = $conn->prepare("
         SELECT
             id,
@@ -78,12 +152,17 @@ function newEventNotificationRows(mysqli $conn): array
             created_at
         FROM events
         WHERE start_date_and_time >= NOW()
+        {$createdAfterClause}
         ORDER BY COALESCE(created_at, start_date_and_time) DESC, id DESC
         LIMIT 20
     ");
 
     if (!$newEventStmt) {
         return [];
+    }
+
+    if ($createdAfter !== null) {
+        $newEventStmt->bind_param("s", $createdAfter);
     }
 
     $newEventStmt->execute();
@@ -109,7 +188,9 @@ function newEventNotificationRows(mysqli $conn): array
 
 function syncNewEventNotificationsForUser(mysqli $conn, int $userId, string $accountType): void
 {
-    foreach (newEventNotificationRows($conn) as $eventNotification) {
+    $notificationStartedAt = notificationStartForUser($conn, $userId, $accountType);
+
+    foreach (newEventNotificationRows($conn, $notificationStartedAt) as $eventNotification) {
         insertNotification(
             $conn,
             $userId,
@@ -122,15 +203,11 @@ function syncNewEventNotificationsForUser(mysqli $conn, int $userId, string $acc
 
 function syncNewEventNotificationsForAllUsers(mysqli $conn): void
 {
-    $eventNotifications = newEventNotificationRows($conn);
-
-    if (empty($eventNotifications)) {
-        return;
-    }
+    ensureNotificationStartColumns($conn);
 
     $recipientQueries = [
-        "consumer" => "SELECT c_id AS user_id FROM consumers",
-        "business_owner" => "SELECT b_id AS user_id FROM business_owner"
+        "consumer" => "SELECT c_id AS user_id, notification_started_at FROM consumers",
+        "business_owner" => "SELECT b_id AS user_id, notification_started_at FROM business_owner"
     ];
 
     foreach ($recipientQueries as $accountType => $sql) {
@@ -141,6 +218,9 @@ function syncNewEventNotificationsForAllUsers(mysqli $conn): void
         }
 
         while ($recipient = $result->fetch_assoc()) {
+            $startedAt = trim((string) ($recipient['notification_started_at'] ?? ''));
+            $eventNotifications = newEventNotificationRows($conn, $startedAt !== '' ? $startedAt : null);
+
             foreach ($eventNotifications as $eventNotification) {
                 insertNotification(
                     $conn,
@@ -157,6 +237,8 @@ function syncNewEventNotificationsForAllUsers(mysqli $conn): void
 function syncEventNotifications(mysqli $conn, int $userId, string $accountType): void
 {
     syncNewEventNotificationsForUser($conn, $userId, $accountType);
+    $notificationStartedAt = notificationStartForUser($conn, $userId, $accountType);
+    $createdAfterClause = eventCreatedAfterClause($notificationStartedAt);
 
     $stmt = $conn->prepare("
         SELECT
@@ -167,12 +249,17 @@ function syncEventNotifications(mysqli $conn, int $userId, string $accountType):
         FROM events
         WHERE start_date_and_time >= NOW()
           AND start_date_and_time < DATE_ADD(NOW(), INTERVAL 4 DAY)
+          {$createdAfterClause}
         ORDER BY start_date_and_time ASC
         LIMIT 10
     ");
 
     if (!$stmt) {
         return;
+    }
+
+    if ($notificationStartedAt !== null) {
+        $stmt->bind_param("s", $notificationStartedAt);
     }
 
     $stmt->execute();
@@ -210,15 +297,22 @@ function syncBusinessOwnerNotifications(mysqli $conn, int $ownerId): void
     $orderStmt = $conn->prepare("
         SELECT
             o.order_code,
+            COALESCE(o.buyer_account_type, 'consumer') AS buyer_account_type,
             COUNT(*) AS item_count,
             MIN(o.created_at) AS created_at,
             c.fname,
-            c.lname
+            c.lname,
+            bo.fname AS owner_fname,
+            bo.lname AS owner_lname
         FROM orders o
         LEFT JOIN consumers c
             ON o.consumer_id = c.c_id
+           AND (o.buyer_account_type = 'consumer' OR o.buyer_account_type IS NULL)
+        LEFT JOIN business_owner bo
+            ON o.consumer_id = bo.b_id
+           AND o.buyer_account_type = 'business_owner'
         WHERE o.business_id = ?
-        GROUP BY o.order_code, o.consumer_id, c.fname, c.lname
+        GROUP BY o.order_code, o.consumer_id, buyer_account_type, c.fname, c.lname, bo.fname, bo.lname
         ORDER BY created_at DESC
         LIMIT 20
     ");
@@ -229,7 +323,10 @@ function syncBusinessOwnerNotifications(mysqli $conn, int $ownerId): void
         $orderResult = $orderStmt->get_result();
 
         while ($row = $orderResult->fetch_assoc()) {
-            $customerName = notificationDisplayName($row['fname'] ?? '', $row['lname'] ?? '');
+            $customerName = notificationDisplayName(
+                $row['fname'] ?? ($row['owner_fname'] ?? ''),
+                $row['lname'] ?? ($row['owner_lname'] ?? '')
+            );
             insertNotification(
                 $conn,
                 $ownerId,
@@ -293,6 +390,7 @@ function syncConsumerNotifications(mysqli $conn, int $consumerId): void
         INNER JOIN business_owner b
             ON o.business_id = b.b_id
         WHERE o.consumer_id = ?
+          AND (o.buyer_account_type = 'consumer' OR o.buyer_account_type IS NULL)
           AND o.status <> 'Pending'
         GROUP BY o.order_code, o.status, b.business_name
         ORDER BY created_at DESC

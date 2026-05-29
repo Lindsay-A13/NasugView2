@@ -2,6 +2,7 @@
 require_once "config/session.php";
 require_once "config/db.php";
 require_once "config/cart_count.php";
+require_once "config/item_reviews_helper.php";
 
 if(!isset($_SESSION['user_id'])){
     header("Location: login.php");
@@ -21,13 +22,14 @@ CREATE TABLE IF NOT EXISTS product_reviews (
     id INT(11) NOT NULL AUTO_INCREMENT,
     product_id INT(11) NOT NULL,
     user_id INT(11) NOT NULL,
+    reviewer_account_type VARCHAR(20) NOT NULL DEFAULT 'consumer',
     rating INT(11) NOT NULL,
     comment TEXT NOT NULL,
     is_anonymous TINYINT(1) DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY unique_product_review (product_id, user_id),
+    UNIQUE KEY unique_product_review (product_id, user_id, reviewer_account_type),
     KEY idx_product_reviews_product (product_id),
     KEY idx_product_reviews_user (user_id)
 )";
@@ -35,6 +37,8 @@ CREATE TABLE IF NOT EXISTS product_reviews (
 if(!$conn->query($createReviewsTableSql)){
     die("Unable to prepare product reviews: " . $conn->error);
 }
+
+ensureItemReviewAccountType($conn, "product_reviews", "product_id", "unique_product_review");
 
 $stmt = $conn->prepare("
     SELECT
@@ -63,7 +67,7 @@ $isOutOfStock = $stockCount <= 0;
 $canAddToCart = !$isOutOfStock;
 
 if(isset($_POST['submit_review'])){
-    if($account_type !== 'consumer'){
+    if(!in_array($account_type, ['consumer', 'business_owner'], true)){
         header("Location: productdetails.php?id=" . $id . "&review=invalid_user");
         exit;
     }
@@ -78,15 +82,15 @@ if(isset($_POST['submit_review'])){
     }
 
     $reviewStmt = $conn->prepare("
-        INSERT INTO product_reviews (product_id, user_id, rating, comment, is_anonymous)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO product_reviews (product_id, user_id, reviewer_account_type, rating, comment, is_anonymous)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             rating = VALUES(rating),
             comment = VALUES(comment),
             is_anonymous = VALUES(is_anonymous),
             updated_at = CURRENT_TIMESTAMP
     ");
-    $reviewStmt->bind_param("iiisi", $id, $consumer_id, $rating, $comment, $isAnonymous);
+    $reviewStmt->bind_param("iisisi", $id, $consumer_id, $account_type, $rating, $comment, $isAnonymous);
     $reviewSaved = $reviewStmt->execute();
     $reviewStmt->close();
 
@@ -182,10 +186,10 @@ $roundedAvgRating = (int) round($avgRating);
 $userReviewStmt = $conn->prepare("
     SELECT rating, comment, is_anonymous
     FROM product_reviews
-    WHERE product_id = ? AND user_id = ?
+    WHERE product_id = ? AND user_id = ? AND reviewer_account_type = ?
     LIMIT 1
 ");
-$userReviewStmt->bind_param("ii", $id, $consumer_id);
+$userReviewStmt->bind_param("iis", $id, $consumer_id, $account_type);
 $userReviewStmt->execute();
 $userReview = $userReviewStmt->get_result()->fetch_assoc();
 $userReviewStmt->close();
@@ -196,9 +200,18 @@ $productReviewsStmt = $conn->prepare("
         c.fname,
         c.lname,
         c.username,
-        c.profile_picture
+        c.profile_picture,
+        bo.fname AS owner_fname,
+        bo.lname AS owner_lname,
+        bo.username AS owner_username,
+        bo.business_photo AS owner_profile_picture
     FROM product_reviews pr
-    LEFT JOIN consumers c ON pr.user_id = c.c_id
+    LEFT JOIN consumers c
+        ON pr.user_id = c.c_id
+       AND pr.reviewer_account_type = 'consumer'
+    LEFT JOIN business_owner bo
+        ON pr.user_id = bo.b_id
+       AND pr.reviewer_account_type = 'business_owner'
     WHERE pr.product_id = ?
     ORDER BY pr.updated_at DESC, pr.created_at DESC
 ");
@@ -450,7 +463,7 @@ Choose your quantity and add this item directly to your cart.
 </div>
 </div>
 
-<?php if($account_type === 'consumer'): ?>
+<?php if(in_array($account_type, ['consumer', 'business_owner'], true)): ?>
 <button type="button" class="btn-rate" onclick="openModal()">
 <?= $userReview ? 'Edit Your Review' : 'Rate & Review' ?>
 </button>
@@ -461,7 +474,7 @@ Choose your quantity and add this item directly to your cart.
 <div class="review-status success">Your review has been saved.</div>
 <?php elseif($reviewStatus === 'invalid' || $reviewStatus === 'invalid_user' || $reviewStatus === 'failed'): ?>
 <div class="review-status error">
-<?= $reviewStatus === 'invalid_user' ? 'Only consumer accounts can post product reviews.' : 'Unable to save your review. Please complete the rating and comment fields and try again.' ?>
+<?= $reviewStatus === 'invalid_user' ? 'Only signed-in customer accounts can post product reviews.' : 'Unable to save your review. Please complete the rating and comment fields and try again.' ?>
 </div>
 <?php endif; ?>
 
@@ -472,12 +485,15 @@ Choose your quantity and add this item directly to your cart.
 $displayName = 'Anonymous';
 if((int) $review['is_anonymous'] !== 1){
     $fullName = trim(($review['fname'] ?? '') . ' ' . ($review['lname'] ?? ''));
-    $displayName = $fullName !== '' ? $fullName : ($review['username'] ?? 'Customer');
+    $ownerName = trim(($review['owner_fname'] ?? '') . ' ' . ($review['owner_lname'] ?? ''));
+    $displayName = $fullName !== '' ? $fullName : ($ownerName !== '' ? $ownerName : ($review['username'] ?? ($review['owner_username'] ?? 'Customer')));
 }
 
 $avatar = 'assets/images/avatar.jpg';
 if((int) $review['is_anonymous'] !== 1 && !empty($review['profile_picture'])){
     $avatar = 'uploads/profile/' . $review['profile_picture'];
+}elseif((int) $review['is_anonymous'] !== 1 && !empty($review['owner_profile_picture'])){
+    $avatar = 'uploads/business_cover/' . $review['owner_profile_picture'];
 }
 ?>
 <div class="review-item">

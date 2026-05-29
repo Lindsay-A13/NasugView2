@@ -309,6 +309,55 @@ function maskName($name){
         substr($name, -1);
 }
 
+function businessDetailsTableExists(mysqli $conn, string $tableName): bool
+{
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+        LIMIT 1
+    ");
+
+    if(!$stmt){
+        return false;
+    }
+
+    $stmt->bind_param("s", $tableName);
+    $stmt->execute();
+    $exists = $stmt->get_result()->num_rows > 0;
+    $stmt->close();
+
+    return $exists;
+}
+
+function businessDetailsTableColumns(mysqli $conn, string $tableName): array
+{
+    $stmt = $conn->prepare("
+        SELECT COLUMN_NAME
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+    ");
+
+    if(!$stmt){
+        return [];
+    }
+
+    $stmt->bind_param("s", $tableName);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $columns = [];
+
+    while($row = $result->fetch_assoc()){
+        $columns[] = (string) $row['COLUMN_NAME'];
+    }
+
+    $stmt->close();
+
+    return $columns;
+}
+
 $productCount = $products->num_rows;
 $serviceCount = $services->num_rows;
 $followerCount = (int) ($followers['total_followers'] ?? 0);
@@ -320,6 +369,91 @@ $mapLink = "https://www.google.com/maps/search/?api=1&query=" . urlencode($busin
 $cover = !empty($business['business_photo'])
     ? "uploads/business_cover/" . $business['business_photo']
     : "assets/images/default-cover.png";
+
+$permitDetails = [
+    "permit_number" => "",
+    "permit_year" => "",
+    "permit_issued_on" => "",
+    "uploaded_at" => "",
+    "original_file_name" => "",
+    "file_url" => ""
+];
+
+if(businessDetailsTableExists($conn, "business_permit_qr_data")){
+    $permitStmt = $conn->prepare("
+        SELECT permit_year, permit_number, permit_issued_on
+        FROM business_permit_qr_data
+        WHERE owner_id = ?
+        LIMIT 1
+    ");
+
+    if($permitStmt){
+        $permitStmt->bind_param("i", $id);
+        $permitStmt->execute();
+        $qrPermit = $permitStmt->get_result()->fetch_assoc();
+        $permitStmt->close();
+
+        if($qrPermit){
+            $permitDetails["permit_year"] = (string) ($qrPermit["permit_year"] ?? "");
+            $permitDetails["permit_number"] = (string) ($qrPermit["permit_number"] ?? "");
+            $permitDetails["permit_issued_on"] = (string) ($qrPermit["permit_issued_on"] ?? "");
+        }
+    }
+}
+
+if(businessDetailsTableExists($conn, "business_permits")){
+    $permitColumns = businessDetailsTableColumns($conn, "business_permits");
+    if(in_array("owner_id", $permitColumns, true)){
+        $permitSelect = [
+            in_array("permit_number", $permitColumns, true) ? "permit_number" : "'' AS permit_number",
+            in_array("file_name", $permitColumns, true) ? "file_name" : "'' AS file_name",
+            in_array("file_path", $permitColumns, true) ? "file_path" : "'' AS file_path",
+            in_array("original_file_name", $permitColumns, true) ? "original_file_name" : "'' AS original_file_name",
+            in_array("uploaded_at", $permitColumns, true) ? "uploaded_at" : "'' AS uploaded_at"
+        ];
+        $permitOrder = in_array("uploaded_at", $permitColumns, true) ? "uploaded_at DESC" : "owner_id DESC";
+
+        $permitStmt = $conn->prepare("
+            SELECT " . implode(", ", $permitSelect) . "
+            FROM business_permits
+            WHERE owner_id = ?
+            ORDER BY " . $permitOrder . "
+            LIMIT 1
+        ");
+
+        if($permitStmt){
+            $permitStmt->bind_param("i", $id);
+            $permitStmt->execute();
+            $uploadedPermit = $permitStmt->get_result()->fetch_assoc();
+            $permitStmt->close();
+
+            if($uploadedPermit){
+                $permitDetails["permit_number"] = $permitDetails["permit_number"] ?: (string) ($uploadedPermit["permit_number"] ?? "");
+                $permitDetails["original_file_name"] = (string) ($uploadedPermit["original_file_name"] ?? "");
+                $permitDetails["uploaded_at"] = (string) ($uploadedPermit["uploaded_at"] ?? "");
+                $loggedFilePath = trim((string) ($uploadedPermit["file_path"] ?? ""));
+                $loggedFileName = trim((string) ($uploadedPermit["file_name"] ?? ""));
+
+                if($loggedFilePath !== '' && is_file(__DIR__ . "/" . $loggedFilePath)){
+                    $permitDetails["file_url"] = $loggedFilePath;
+                }elseif($loggedFileName !== '' && is_file(__DIR__ . "/uploads/business_permits/" . basename($loggedFileName))){
+                    $permitDetails["file_url"] = "uploads/business_permits/" . basename($loggedFileName);
+                }
+            }
+        }
+    }
+}
+
+$permitFiles = $permitDetails["file_url"] === "" ? glob(__DIR__ . "/uploads/business_permits/permit_" . $id . "_*") : false;
+if($permitFiles){
+    usort($permitFiles, fn($a, $b) => filemtime($b) <=> filemtime($a));
+    $permitDetails["file_url"] = "uploads/business_permits/" . basename($permitFiles[0]);
+}
+
+$hasPermitDetails = $permitDetails["file_url"] !== ""
+    || $permitDetails["permit_number"] !== ""
+    || $permitDetails["permit_year"] !== ""
+    || $permitDetails["permit_issued_on"] !== "";
 ?>
 <!DOCTYPE html>
 <html>
@@ -385,9 +519,16 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:3000;align-items:center;justify-content:center;padding:18px}
 .modal-overlay.active{display:flex}
 .modal-content{width:min(100%,480px);background:#fff;border-radius:16px;padding:20px;box-shadow:0 18px 45px rgba(0,0,0,.22)}
+.modal-content.permit-modal-content{max-width:720px;max-height:calc(100vh - 36px);overflow-y:auto}
 .modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 .modal-title{margin:0;color:#001a47;font-size:18px}
 .modal-close{width:36px;height:36px;border:none;border-radius:50%;background:#f1f5f9;color:#334155;cursor:pointer}
+.permit-preview{width:100%;max-height:58vh;object-fit:contain;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;margin-bottom:14px}
+.permit-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.permit-detail{border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#f8fafc}
+.permit-label{display:block;font-size:12px;font-weight:700;color:#64748b;margin-bottom:4px}
+.permit-value{display:block;font-size:14px;color:#0f172a;word-break:break-word}
+.permit-empty{padding:16px;border:1px dashed #cbd5e1;border-radius:14px;background:#f8fafc;color:#64748b}
 .edit-stars{display:flex;gap:7px;margin-bottom:12px;color:#cbd5e1;font-size:24px}
 .edit-stars .active{color:#001a47}
 .edit-review-text{width:100%;min-height:130px;border:1px solid #cbd5e1;border-radius:12px;padding:12px;font:inherit;resize:vertical}
@@ -407,6 +548,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
   .business-image{min-height:240px}
   .business-name{font-size:28px}
   .info-grid{grid-template-columns:1fr}
+  .permit-details{grid-template-columns:1fr}
   .listing-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 </style>
@@ -470,11 +612,9 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 </form>
 <?php endif; ?>
 
-<?php if(!empty($business['address'])): ?>
-<a href="<?= htmlspecialchars($mapLink) ?>" target="_blank" class="action-btn secondary">
-<i class="fa fa-location-dot"></i> Open Map
-</a>
-<?php endif; ?>
+<button type="button" class="action-btn secondary" id="openPermitModal">
+<i class="fa fa-file-shield"></i> View Business Permit
+</button>
 </div>
 
 <div class="feedback-row">
@@ -646,6 +786,44 @@ if(count($reviewImages) > 0):
 </div>
 </div>
 
+<div class="modal-overlay" id="permitModal">
+<div class="modal-content permit-modal-content" role="dialog" aria-modal="true" aria-labelledby="permitModalTitle">
+<div class="modal-head">
+<h3 class="modal-title" id="permitModalTitle">Business Permit</h3>
+<button type="button" class="modal-close" id="closePermitModal" aria-label="Close"><i class="fa fa-times"></i></button>
+</div>
+
+<?php if($hasPermitDetails): ?>
+<?php if(!empty($permitDetails['file_url'])): ?>
+<img src="<?= htmlspecialchars($permitDetails['file_url']) ?>" class="permit-preview" alt="Business permit">
+<?php endif; ?>
+
+<div class="permit-details">
+<div class="permit-detail">
+<span class="permit-label">Business Name</span>
+<span class="permit-value"><?= htmlspecialchars($business['business_name']) ?></span>
+</div>
+<div class="permit-detail">
+<span class="permit-label">Permit Number</span>
+<span class="permit-value"><?= htmlspecialchars($permitDetails['permit_number'] ?: 'Not available') ?></span>
+</div>
+<div class="permit-detail">
+<span class="permit-label">Permit Year</span>
+<span class="permit-value"><?= htmlspecialchars($permitDetails['permit_year'] ?: 'Not available') ?></span>
+</div>
+<div class="permit-detail">
+<span class="permit-label">Issued On</span>
+<span class="permit-value">
+<?= !empty($permitDetails['permit_issued_on']) ? htmlspecialchars(date("F j, Y", strtotime($permitDetails['permit_issued_on']))) : 'Not available' ?>
+</span>
+</div>
+</div>
+<?php else: ?>
+<div class="permit-empty">No business permit has been uploaded for this business yet.</div>
+<?php endif; ?>
+</div>
+</div>
+
 <div class="modal-overlay" id="editReviewModal">
 <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="editReviewTitle">
 <div class="modal-head">
@@ -683,6 +861,34 @@ Post as Anonymous
 
 <?php include 'bottom_nav.php'; ?>
 <script>
+const permitModal = document.getElementById("permitModal");
+const openPermitModal = document.getElementById("openPermitModal");
+const closePermitModal = document.getElementById("closePermitModal");
+
+if(openPermitModal && permitModal){
+    openPermitModal.addEventListener("click", () => {
+        permitModal.classList.add("active");
+        document.body.style.overflow = "hidden";
+    });
+}
+
+function closeBusinessPermitModal(){
+    permitModal.classList.remove("active");
+    document.body.style.overflow = "auto";
+}
+
+if(closePermitModal){
+    closePermitModal.addEventListener("click", closeBusinessPermitModal);
+}
+
+if(permitModal){
+    permitModal.addEventListener("click", (event) => {
+        if(event.target === permitModal){
+            closeBusinessPermitModal();
+        }
+    });
+}
+
 const editReviewModal = document.getElementById("editReviewModal");
 const editReviewId = document.getElementById("editReviewId");
 const editBusinessId = document.getElementById("editBusinessId");

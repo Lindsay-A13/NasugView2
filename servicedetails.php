@@ -2,6 +2,15 @@
 require_once "config/session.php";
 require_once "config/db.php";
 require_once "config/cart_count.php";
+require_once "config/orders_helper.php";
+require_once "config/item_reviews_helper.php";
+
+ensureOrderPaymentSupport($conn);
+
+if(!isset($_SESSION['user_id'])){
+    header("Location: login.php");
+    exit;
+}
 
 $consumer_id = (int) $_SESSION['user_id'];
 $account_type = $_SESSION['account_type'] ?? '';
@@ -16,13 +25,14 @@ CREATE TABLE IF NOT EXISTS service_reviews (
     id INT(11) NOT NULL AUTO_INCREMENT,
     service_id INT(11) NOT NULL,
     user_id INT(11) NOT NULL,
+    reviewer_account_type VARCHAR(20) NOT NULL DEFAULT 'consumer',
     rating INT(11) NOT NULL,
     comment TEXT NOT NULL,
     is_anonymous TINYINT(1) DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY unique_service_review (service_id, user_id),
+    UNIQUE KEY unique_service_review (service_id, user_id, reviewer_account_type),
     KEY idx_service_reviews_service (service_id),
     KEY idx_service_reviews_user (user_id)
 )";
@@ -30,6 +40,8 @@ CREATE TABLE IF NOT EXISTS service_reviews (
 if(!$conn->query($createReviewsTableSql)){
     die("Unable to prepare service reviews: " . $conn->error);
 }
+
+ensureItemReviewAccountType($conn, "service_reviews", "service_id", "unique_service_review");
 
 $serviceStmt = $conn->prepare("
     SELECT
@@ -65,8 +77,88 @@ if(!$service){
     die("Service not found.");
 }
 
+$serviceDuration = max(1, (int) ($service['duration'] ?? 1));
+$unitLabel = $serviceDuration >= 1440 ? "day" : "session";
+
+if(isset($_POST['ajax_add_service'])){
+    $units = max(1, (int) ($_POST['units'] ?? 1));
+    $bookingDate = trim($_POST['booking_date'] ?? '');
+    $bookingTime = trim($_POST['booking_time'] ?? '');
+    $bookingNote = substr(trim($_POST['booking_note'] ?? ''), 0, 255);
+
+    if($bookingDate === '' || $bookingTime === ''){
+        echo "missing_booking";
+        exit;
+    }
+
+    $bookingTimestamp = strtotime($bookingDate . ' ' . $bookingTime);
+    if($bookingTimestamp === false){
+        echo "invalid_booking";
+        exit;
+    }
+
+    $bookingDate = date('Y-m-d', $bookingTimestamp);
+    $bookingTime = date('H:i:s', $bookingTimestamp);
+    $user_id = (int) $_SESSION['user_id'];
+
+    $check = $conn->prepare("
+        SELECT id, quantity
+        FROM cart
+        WHERE consumer_id = ?
+          AND account_type = ?
+          AND service_id = ?
+          AND booking_date = ?
+          AND booking_time = ?
+        LIMIT 1
+    ");
+    $check->bind_param("isiss", $user_id, $account_type, $id, $bookingDate, $bookingTime);
+    $check->execute();
+    $existing = $check->get_result()->fetch_assoc();
+    $check->close();
+
+    if($existing){
+        $newUnits = (int) $existing['quantity'] + $units;
+        $update = $conn->prepare("
+            UPDATE cart
+            SET quantity = ?, booking_note = ?, unit_label = ?
+            WHERE id = ?
+        ");
+        $update->bind_param("issi", $newUnits, $bookingNote, $unitLabel, $existing['id']);
+        $update->execute();
+        $update->close();
+        echo "updated";
+    }else{
+        $businessId = (int) $service['business_id'];
+        $servicePrice = (float) $service['price'];
+
+        $insert = $conn->prepare("
+            INSERT INTO cart
+            (consumer_id, account_type, business_id, product_id, service_id, quantity, price, booking_date, booking_time, booking_note, unit_label)
+            VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $insert->bind_param(
+            "isiiidssss",
+            $user_id,
+            $account_type,
+            $businessId,
+            $id,
+            $units,
+            $servicePrice,
+            $bookingDate,
+            $bookingTime,
+            $bookingNote,
+            $unitLabel
+        );
+        $insert->execute();
+        $insert->close();
+        echo "inserted";
+    }
+
+    exit;
+}
+
 if(isset($_POST['submit_review'])){
-    if($account_type !== 'consumer'){
+    if(!in_array($account_type, ['consumer', 'business_owner'], true)){
         header("Location: servicedetails.php?id=" . $id . "&review=invalid_user");
         exit;
     }
@@ -81,15 +173,15 @@ if(isset($_POST['submit_review'])){
     }
 
     $reviewStmt = $conn->prepare("
-        INSERT INTO service_reviews (service_id, user_id, rating, comment, is_anonymous)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO service_reviews (service_id, user_id, reviewer_account_type, rating, comment, is_anonymous)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             rating = VALUES(rating),
             comment = VALUES(comment),
             is_anonymous = VALUES(is_anonymous),
             updated_at = CURRENT_TIMESTAMP
     ");
-    $reviewStmt->bind_param("iiisi", $id, $consumer_id, $rating, $comment, $isAnonymous);
+    $reviewStmt->bind_param("iisisi", $id, $consumer_id, $account_type, $rating, $comment, $isAnonymous);
     $reviewSaved = $reviewStmt->execute();
     $reviewStmt->close();
 
@@ -114,10 +206,10 @@ $roundedAvgRating = (int) round($avgRating);
 $userReviewStmt = $conn->prepare("
     SELECT rating, comment, is_anonymous
     FROM service_reviews
-    WHERE service_id = ? AND user_id = ?
+    WHERE service_id = ? AND user_id = ? AND reviewer_account_type = ?
     LIMIT 1
 ");
-$userReviewStmt->bind_param("ii", $id, $consumer_id);
+$userReviewStmt->bind_param("iis", $id, $consumer_id, $account_type);
 $userReviewStmt->execute();
 $userReview = $userReviewStmt->get_result()->fetch_assoc();
 $userReviewStmt->close();
@@ -128,9 +220,18 @@ $serviceReviewsStmt = $conn->prepare("
         c.fname,
         c.lname,
         c.username,
-        c.profile_picture
+        c.profile_picture,
+        bo.fname AS owner_fname,
+        bo.lname AS owner_lname,
+        bo.username AS owner_username,
+        bo.business_photo AS owner_profile_picture
     FROM service_reviews sr
-    LEFT JOIN consumers c ON sr.user_id = c.c_id
+    LEFT JOIN consumers c
+        ON sr.user_id = c.c_id
+       AND sr.reviewer_account_type = 'consumer'
+    LEFT JOIN business_owner bo
+        ON sr.user_id = bo.b_id
+       AND sr.reviewer_account_type = 'business_owner'
     WHERE sr.service_id = ?
     ORDER BY sr.updated_at DESC, sr.created_at DESC
 ");
@@ -157,13 +258,14 @@ $mapLink = "https://www.google.com/maps/search/?api=1&query=" . urlencode($servi
 <link rel="stylesheet" href="assets/css/responsive.css"/>
 
 <style>
+*{box-sizing:border-box;}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f172a;}
 .header{display:flex;justify-content:flex-end;align-items:center;padding:12px 20px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:#fff;z-index:1000;}
 .logo img{height:38px;}
 .cart-btn,.cart-btn:visited{position:relative;background:rgba(0,26,71,0.08);padding:8px;border-radius:50%;color:#001a47;font-size:18px;text-decoration:none;}
 .cart-badge{position:absolute;top:-4px;right:-4px;background:#e74c3c;color:#fff;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:50%;}
-.container{max-width:1100px;margin:auto;padding:20px;padding-bottom:130px;}
-.service-card{display:grid;grid-template-columns:1.1fr .9fr;gap:28px;background:#fff;padding:24px;border-radius:16px;box-shadow:0 8px 22px rgba(0,0,0,.08);}
+.container{max-width:1100px;margin:auto;padding:20px;padding-bottom:130px;overflow-x:hidden;}
+.service-card{display:grid;grid-template-columns:1.1fr .9fr;gap:28px;background:#fff;padding:24px;border-radius:16px;box-shadow:0 8px 22px rgba(0,0,0,.08);min-width:0;}
 .service-image{width:100%;height:100%;min-height:320px;object-fit:cover;border-radius:14px;background:#f8fafc;}
 .eyebrow{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:10px;}
 .service-title{margin:0 0 10px;font-size:32px;line-height:1.15;color:#001a47;}
@@ -178,6 +280,21 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .action-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 16px;border-radius:12px;text-decoration:none;font-weight:600;}
 .action-btn.primary{background:#001a47;color:#fff;}
 .action-btn.secondary{border:1px solid #cbd5e1;color:#001a47;background:#fff;}
+.booking-card{margin-top:20px;padding:16px;border:1px solid #e2e8f0;border-radius:16px;background:#f8fafc;max-width:100%;min-width:0;overflow:hidden;}
+.booking-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+.booking-title{font-size:16px;font-weight:700;color:#001a47;}
+.booking-badge{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:#ecfdf3;color:#166534;font-size:13px;font-weight:600;}
+.booking-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px;}
+.booking-field{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:#334155;min-width:0;}
+.booking-field input,.booking-field textarea{width:100%;min-width:0;box-sizing:border-box;border:1px solid #dbe2ea;border-radius:10px;padding:10px;font:inherit;background:#fff;}
+.booking-field.full{grid-column:1/-1;}
+.booking-field textarea{min-height:72px;resize:vertical;}
+.qty-control{display:inline-flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;border:1px solid #dbe2ea;background:#fff;}
+.qty-btn{width:34px;height:34px;border:none;border-radius:10px;background:#e2e8f0;color:#0f172a;font-size:18px;cursor:pointer;}
+.qty-value{min-width:20px;text-align:center;font-size:16px;font-weight:700;color:#001a47;}
+.btn-cart{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;max-width:100%;margin-top:14px;padding:14px;border:none;border-radius:12px;background:#001a47;color:#fff;cursor:pointer;font-weight:600;font-size:15px;white-space:normal;}
+.btn-cart:disabled{background:#94a3b8;cursor:not-allowed;}
+.booking-note{margin-top:10px;font-size:13px;color:#64748b;}
 .info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:28px;}
 .panel{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px;}
 .panel h2{margin:0 0 14px;font-size:18px;color:#001a47;}
@@ -223,11 +340,15 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .anonymous-toggle{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:#334155;font-size:14px;}
 .submit-review{width:100%;padding:12px;border:none;border-radius:12px;background:#001a47;color:#fff;font-weight:600;cursor:pointer;}
 @media (max-width:768px){
-  .container{padding:16px;padding-bottom:120px;}
-  .service-card{grid-template-columns:1fr;gap:20px;padding:18px;}
-  .service-card,.info-grid,.reviews-section{width:min(100%,720px);margin-left:auto;margin-right:auto;}
+  .container{padding:12px;padding-bottom:120px;max-width:100vw;}
+  .service-card{grid-template-columns:1fr;gap:18px;padding:14px;width:100%;max-width:100%;}
+  .service-card,.info-grid,.reviews-section{width:100%;max-width:720px;margin-left:auto;margin-right:auto;}
   .service-image{min-height:240px;}
   .service-title{font-size:26px;}
+  .booking-card{padding:12px;border-radius:14px;}
+  .booking-top{align-items:flex-start;}
+  .booking-grid{grid-template-columns:1fr;}
+  .booking-field input,.booking-field textarea{font-size:13px;}
   .info-grid{grid-template-columns:1fr;}
 }
 </style>
@@ -285,6 +406,42 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
         </a>
         <?php endif; ?>
       </div>
+
+      <div class="booking-card">
+        <div class="booking-top">
+          <div class="booking-title">Schedule this Service</div>
+          <div class="booking-badge"><i class="fa fa-calendar-check"></i> Available by appointment</div>
+        </div>
+
+        <div class="booking-grid">
+          <label class="booking-field">
+            Date
+            <input type="date" id="bookingDate" min="<?= date('Y-m-d') ?>" required>
+          </label>
+          <label class="booking-field">
+            Time
+            <input type="time" id="bookingTime" required>
+          </label>
+          <label class="booking-field full">
+            Service request
+            <textarea id="bookingNote" maxlength="255" placeholder="Example: preferred stylist, nail design, number of guests, special instructions"></textarea>
+          </label>
+        </div>
+
+        <div class="qty-control">
+          <button type="button" class="qty-btn" onclick="decreaseUnits()">-</button>
+          <span id="bookingUnits" class="qty-value">1</span>
+          <button type="button" class="qty-btn" onclick="increaseUnits()">+</button>
+        </div>
+
+        <button type="button" class="btn-cart" id="bookServiceBtn" onclick="addServiceToCart()">
+          <i class="fa fa-calendar-plus"></i> Add Service to Cart
+        </button>
+
+        <div class="booking-note" id="bookingSummary">
+          1 <?= htmlspecialchars($unitLabel) ?> = <?= (int) $serviceDuration ?> minutes. Total: <?= (int) $serviceDuration ?> minutes.
+        </div>
+      </div>
     </div>
   </div>
 
@@ -333,7 +490,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
         </div>
       </div>
 
-      <?php if($account_type === 'consumer'): ?>
+      <?php if(in_array($account_type, ['consumer', 'business_owner'], true)): ?>
       <button type="button" class="btn-rate" onclick="openModal()">
         <?= $userReview ? 'Edit Your Review' : 'Rate & Review' ?>
       </button>
@@ -344,7 +501,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
     <div class="review-status success">Your review has been saved.</div>
     <?php elseif($reviewStatus === 'invalid' || $reviewStatus === 'invalid_user' || $reviewStatus === 'failed'): ?>
     <div class="review-status error">
-      <?= $reviewStatus === 'invalid_user' ? 'Only consumer accounts can post service reviews.' : 'Unable to save your review. Please complete the rating and comment fields and try again.' ?>
+      <?= $reviewStatus === 'invalid_user' ? 'Only signed-in customer accounts can post service reviews.' : 'Unable to save your review. Please complete the rating and comment fields and try again.' ?>
     </div>
     <?php endif; ?>
 
@@ -355,12 +512,15 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
       $displayName = 'Anonymous';
       if((int) $review['is_anonymous'] !== 1){
           $fullName = trim(($review['fname'] ?? '') . ' ' . ($review['lname'] ?? ''));
-          $displayName = $fullName !== '' ? $fullName : ($review['username'] ?? 'Customer');
+          $ownerName = trim(($review['owner_fname'] ?? '') . ' ' . ($review['owner_lname'] ?? ''));
+          $displayName = $fullName !== '' ? $fullName : ($ownerName !== '' ? $ownerName : ($review['username'] ?? ($review['owner_username'] ?? 'Customer')));
       }
 
       $avatar = 'assets/images/avatar.jpg';
       if((int) $review['is_anonymous'] !== 1 && !empty($review['profile_picture'])){
           $avatar = 'uploads/profile/' . $review['profile_picture'];
+      }elseif((int) $review['is_anonymous'] !== 1 && !empty($review['owner_profile_picture'])){
+          $avatar = 'uploads/business_cover/' . $review['owner_profile_picture'];
       }
       ?>
       <div class="review-item">
@@ -418,6 +578,71 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 
 <?php include 'bottom_nav.php'; ?>
 <script>
+let bookingUnits = 1;
+const serviceDuration = <?= (int) $serviceDuration ?>;
+const serviceUnitLabel = <?= json_encode($unitLabel) ?>;
+
+function updateBookingSummary(){
+  const totalMinutes = bookingUnits * serviceDuration;
+  document.getElementById("bookingUnits").innerText = bookingUnits;
+  document.getElementById("bookingSummary").innerText =
+    bookingUnits + " " + serviceUnitLabel + (bookingUnits === 1 ? "" : "s") +
+    " = " + totalMinutes + " minutes total.";
+}
+
+function increaseUnits(){
+  bookingUnits++;
+  updateBookingSummary();
+}
+
+function decreaseUnits(){
+  if(bookingUnits > 1){
+    bookingUnits--;
+    updateBookingSummary();
+  }
+}
+
+function addServiceToCart(){
+  const btn = document.getElementById("bookServiceBtn");
+  const bookingDate = document.getElementById("bookingDate").value;
+  const bookingTime = document.getElementById("bookingTime").value;
+  const bookingNote = document.getElementById("bookingNote").value;
+
+  if(!bookingDate || !bookingTime){
+    alert("Please choose a booking date and time.");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Adding...';
+
+  const params = new URLSearchParams();
+  params.set("ajax_add_service", "1");
+  params.set("units", bookingUnits);
+  params.set("booking_date", bookingDate);
+  params.set("booking_time", bookingTime);
+  params.set("booking_note", bookingNote);
+
+  fetch("", {
+    method: "POST",
+    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+    body: params.toString()
+  })
+  .then(res => res.text())
+  .then(data => {
+    const result = data.trim();
+    if(result === "inserted" || result === "updated"){
+      btn.innerHTML = '<i class="fa fa-check"></i> Added to Cart';
+      setTimeout(() => window.location.href = "cart.php", 500);
+      return;
+    }
+
+    alert("Unable to add this booking. Please check the date and time.");
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-calendar-plus"></i> Add Service to Cart';
+  });
+}
+
 const modal = document.getElementById("modal");
 const modalContent = modal.querySelector(".modal-content");
 const ratingInput = document.getElementById("ratingInput");
