@@ -314,8 +314,7 @@ Appointment: <?= htmlspecialchars(date("M d, Y", strtotime($item['booking_date']
 </div>
 <?php if($serviceDuration > 0): ?>
 <div style="color:#64748b;font-size:12px;margin-top:3px;">
-<?= (int) $serviceDuration ?> mins per <?= htmlspecialchars($unitText) ?>,
-<?= (int) $serviceDuration * (int) $item['quantity'] ?> mins total
+<?= (int) $serviceDuration ?> hour<?= (int) $serviceDuration === 1 ? '' : 's' ?> per <?= htmlspecialchars($unitText) ?>
 </div>
 <?php endif; ?>
 <?php if(!empty($item['booking_note'])): ?>

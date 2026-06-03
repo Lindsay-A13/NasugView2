@@ -427,7 +427,13 @@ SELECT
     c.lname,
     c.profile_picture,
 
-    b.business_name,
+    r.business_id,
+    (
+        SELECT bo.business_name
+        FROM business_owner bo
+        WHERE bo.b_id = r.business_id
+        LIMIT 1
+    ) AS review_business_name,
 
     (SELECT COUNT(*) 
      FROM review_reacts 
@@ -453,13 +459,7 @@ FROM reviews r
 LEFT JOIN consumers c 
 ON r.user_id = c.c_id
 
-JOIN business_owner b 
-ON r.business_id = b.b_id
-
-WHERE r.is_hidden = 0
-
-ORDER BY r.created_at DESC
-LIMIT 6
+ORDER BY RAND()
 ";
 
 $reviewStmt = $conn->prepare($sql);
@@ -472,6 +472,23 @@ $reviewStmt->bind_param("is",$current_user_id,$current_account_type);
 
 $reviewStmt->execute();
 $reviews = $reviewStmt->get_result();
+
+$businessNameMap = [];
+$businessNamesStmt = $conn->prepare("
+    SELECT b_id, business_name
+    FROM business_owner
+");
+
+if($businessNamesStmt){
+    $businessNamesStmt->execute();
+    $businessNames = $businessNamesStmt->get_result();
+
+    while($businessNameRow = $businessNames->fetch_assoc()){
+        $businessNameMap[(int) $businessNameRow['b_id']] = trim((string) ($businessNameRow['business_name'] ?? ''));
+    }
+
+    $businessNamesStmt->close();
+}
 
 ?>
 
@@ -487,7 +504,7 @@ $reviews = $reviewStmt->get_result();
 
 
 <?php require_once "config/theme.php"; render_theme_head(); ?>
-<link rel="stylesheet" href="assets/css/home.css?v=20260527-reviews">
+<link rel="stylesheet" href="assets/css/home.css?v=20260601-business-name-fix">
 </head>
 
 <body>
@@ -686,7 +703,7 @@ if(!empty($row['business_photo'])){
 <div class="section-heading section-heading-spaced">
 <div>
 <div class="section-kicker">Community updates</div>
-<h2>Latest Reviews</h2>
+<h2>Community Reviews</h2>
 </div>
 </div>
 
@@ -771,9 +788,23 @@ echo htmlspecialchars($review['fname']." ".$review['lname']);
 
 </div>
 
+<?php
+$reviewBusinessId = (int) ($review['business_id'] ?? 0);
+$reviewBusinessName = $businessNameMap[$reviewBusinessId] ?? trim((string) ($review['review_business_name'] ?? ''));
+
+if($reviewBusinessName === ""){
+    $reviewBusinessName = $reviewBusinessId > 0 ? "Business ".$reviewBusinessId : "View business";
+}
+?>
+<?php if($reviewBusinessId > 0): ?>
+<a href="businessdetails.php?id=<?php echo $reviewBusinessId; ?>" class="review-business" title="<?php echo htmlspecialchars($reviewBusinessName); ?>">
+<?php echo htmlspecialchars($reviewBusinessName); ?>
+</a>
+<?php else: ?>
 <div class="review-business">
-<?php echo htmlspecialchars($review['business_name']); ?>
+<?php echo htmlspecialchars($reviewBusinessName); ?>
 </div>
+<?php endif; ?>
 
 <div class="review-date">
 <?php echo date("F d, Y", strtotime($review['created_at'])); ?>
@@ -1359,6 +1390,129 @@ count.textContent = data.total;
 
 });
 
+</script>
+<style>
+.home-section-action{
+display:none;
+justify-content:flex-end;
+align-items:center;
+margin:8px 0 12px;
+grid-column:1/-1;
+width:100%;
+}
+.home-section-action a{
+display:inline-flex;
+align-items:center;
+gap:6px;
+font-size:13px;
+font-weight:700;
+color:#001a47;
+text-decoration:none;
+}
+.home-view-title{
+margin:16px 0;
+font-size:22px;
+font-weight:800;
+color:#001a47;
+}
+</style>
+<script>
+(function(){
+  const params = new URLSearchParams(window.location.search);
+  const activeView = params.get("view");
+  const validViews = ["products", "services", "businesses"];
+  const isViewPage = validViews.includes(activeView);
+  const types = [
+    {key: "products", label: "Products", selector: 'a[href*="productdetails.php"]'},
+    {key: "services", label: "Services", selector: 'a[href*="servicedetails.php"]'},
+    {key: "businesses", label: "Businesses", selector: 'a[href*="businessdetails.php"]'}
+  ];
+
+  function addSeeAll(cards, type){
+    if(!cards.length || isViewPage) return;
+    const container = cards[0].parentElement;
+    if(!container || container.querySelector('[data-see-all="' + type.key + '"]')) return;
+
+    const action = document.createElement("div");
+    action.className = "home-section-action";
+    action.dataset.seeAll = type.key;
+    action.innerHTML = '<a href="' + type.key + '.php">See All <i class="fa fa-arrow-right"></i></a>';
+    container.insertBefore(action, container.firstChild);
+  }
+
+  if(isViewPage){
+    const selected = types.find(type => type.key === activeView);
+    const title = document.createElement("div");
+    title.className = "home-view-title";
+    title.textContent = selected ? "All " + selected.label : "";
+    const host = document.querySelector(".container") || document.querySelector("main") || document.body;
+    host.insertBefore(title, host.firstChild);
+  }
+
+  types.forEach(type => {
+    const cards = Array.from(document.querySelectorAll(type.selector));
+    cards.forEach((card, index) => {
+      if(isViewPage){
+        card.style.display = type.key === activeView ? "" : "none";
+      }else{
+        card.style.display = index < 10 ? "" : "none";
+      }
+    });
+    if(isViewPage && type.key !== activeView){
+      Array.from(new Set(cards.map(card => card.parentElement).filter(Boolean))).forEach(container => {
+        const hasActiveCards = types.some(activeType => {
+          return activeType.key === activeView && container.querySelector(activeType.selector);
+        });
+        if(!hasActiveCards){
+          container.style.display = "none";
+        }
+      });
+    }
+    addSeeAll(cards, type);
+  });
+
+  const headings = Array.from(document.querySelectorAll("h1,h2,h3,.section-title,.home-title"));
+  headings.forEach(heading => {
+    const text = heading.textContent.trim().toLowerCase();
+    if(text.includes("top rated")){
+      const section = heading.closest("section") || heading.parentElement;
+      const links = section ? Array.from(section.querySelectorAll("a,button")) : [];
+      links.forEach(link => {
+        const label = link.textContent.trim().toLowerCase();
+        if(label === "see all" || label.includes("see all")){
+          if(link.tagName.toLowerCase() === "a"){
+            link.href = "businesses.php?top_rated=1";
+          }else{
+            link.onclick = function(){
+              window.location.href = "businesses.php?top_rated=1";
+            };
+          }
+        }
+      });
+    }
+
+    if(text.includes("recommended")){
+      const section = heading.closest("section") || heading.parentElement;
+      if(section){
+        section.querySelectorAll(".stars,.rating-line,.rating-value,[class*='rating'],[class*='star']").forEach(item => {
+          item.style.display = "none";
+        });
+        Array.from(section.querySelectorAll("a,button")).forEach(link => {
+          const label = link.textContent.trim().toLowerCase();
+          if(label === "explore" || label.includes("explore")){
+            if(link.tagName.toLowerCase() === "a"){
+              link.href = "businesses.php";
+            }else{
+              link.onclick = function(){
+                window.location.href = "businesses.php";
+              };
+            }
+          }
+        });
+      }
+    }
+  });
+})();
 </script>
 </body>
 </html>

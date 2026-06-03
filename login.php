@@ -97,6 +97,14 @@ function validatePermitQrData(string $permitYear, string $permitNumber, string $
     return [true, null];
 }
 
+function isStrongPassword(string $password): bool {
+    return strlen($password) >= 8
+        && preg_match('/[a-z]/', $password)
+        && preg_match('/[A-Z]/', $password)
+        && preg_match('/\d/', $password)
+        && preg_match('/[^A-Za-z0-9]/', $password);
+}
+
 function validateBusinessPermitUpload(array $file): array {
     if(
         !isset($file['error'], $file['tmp_name'], $file['name']) ||
@@ -319,6 +327,8 @@ if(isset($_POST['register'])){
         )
     ){
         $register_error = "All fields required.";
+    } elseif(!isStrongPassword($password)){
+        $register_error = "Password must be at least 8 characters and include uppercase, lowercase, number, and special character.";
     } elseif($account_type === "business_owner" && empty($business_name)){
         $register_error = "Store name is required for business owners.";
     } elseif($account_type === "business_owner" && empty($business_line)){
@@ -536,7 +546,7 @@ $conn->close();
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <?php require_once "config/theme.php"; render_theme_head(); ?>
-<link rel="stylesheet" href="assets/css/login.css?v=15">
+<link rel="stylesheet" href="assets/css/login.css?v=17">
 </head>
 <body>
 <?php include 'mobile_back_button.php'; ?>
@@ -637,9 +647,21 @@ $conn->close();
             <input type="email" name="email" placeholder="Email" value="<?php echo htmlspecialchars(oldInput('email')); ?>" required>
 
             <div class="password-field">
-                <input type="password" name="password" placeholder="Password" required id="password" class="textbox password-input">
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Password"
+                    required
+                    id="password"
+                    class="textbox password-input"
+                    minlength="8"
+                    pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}"
+                    title="Use at least 8 characters with uppercase, lowercase, number, and special character."
+                    autocomplete="new-password"
+                >
                 <i class="fa fa-eye-slash" id="togglePassword"></i>
             </div>
+            <small class="password-help">At least 8 characters with uppercase, lowercase, number, and special character.</small>
 
             <input type="text" name="first_name" placeholder="First Name" value="<?php echo htmlspecialchars(oldInput('first_name')); ?>" required>
             <input type="text" name="last_name" placeholder="Last Name" value="<?php echo htmlspecialchars(oldInput('last_name')); ?>" required>
@@ -705,7 +727,7 @@ $conn->close();
                     <input type="checkbox" name="remember" <?php echo $remember ? 'checked' : ''; ?>>
                     Remember Me
                 </label>
-                <a href="#">Forgot password?</a>
+                <a href="forgot_password.php" id="forgotPasswordLink" class="forgot-password-link">Forgot password?</a>
             </div>
 
             <button type="submit" name="login">Login</button>
@@ -735,6 +757,14 @@ const passwordInput = document.getElementById('password');
 const toggleLoginPassword = document.getElementById('toggleLoginPassword');
 const loginPassword = document.getElementById('loginPassword');
 const birthdayInput = document.getElementById('birthday');
+const forgotPasswordLink = document.getElementById('forgotPasswordLink');
+
+if(forgotPasswordLink){
+    forgotPasswordLink.addEventListener('click', function(e){
+        e.preventDefault();
+        window.location.href = this.href;
+    });
+}
 
 if(togglePassword && passwordInput){
     togglePassword.addEventListener('click', function () {

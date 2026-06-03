@@ -490,7 +490,7 @@ font-size:18px;
 
         <!-- DURATION -->
         <div style="font-size:12px;color:#888;">
-            <?= $row['duration']; ?> mins (duration)
+            <?= (int) $row['duration']; ?> hour<?= (int) $row['duration'] === 1 ? '' : 's' ?> (duration)
         </div>
         <div class="distance-line" data-distance-label>Distance unavailable</div>
     </div>
@@ -1018,5 +1018,101 @@ updateCategoryButtonState();
 loadNearbyDistances();
 </script>
 
+<style>
+.listing-section-action{
+display:flex;
+justify-content:flex-end;
+align-items:center;
+margin:8px 0 12px;
+grid-column:1/-1;
+width:100%;
+}
+.listing-section-action a{
+display:inline-flex;
+align-items:center;
+gap:6px;
+font-size:13px;
+font-weight:700;
+color:#001a47;
+text-decoration:none;
+}
+.listing-view-title{
+margin:16px 0;
+font-size:22px;
+font-weight:800;
+color:#001a47;
+}
+</style>
+<script>
+(function(){
+  const params = new URLSearchParams(window.location.search);
+  const activeView = params.get("view");
+  const validViews = ["products", "services", "businesses"];
+  const isViewPage = validViews.includes(activeView);
+  const types = [
+    {key: "products", label: "Products", selector: 'a[href*="productdetails.php"]'},
+    {key: "services", label: "Services", selector: 'a[href*="servicedetails.php"]'},
+    {key: "businesses", label: "Businesses", selector: 'a[href*="businessdetails.php"]'}
+  ];
+
+  function cardContainer(card){
+    return card.parentElement;
+  }
+
+  function addSeeAll(cards, type){
+    if(!cards.length || isViewPage) return;
+    const container = cardContainer(cards[0]);
+    if(!container || container.querySelector('[data-see-all="' + type.key + '"]')) return;
+
+    const action = document.createElement("div");
+    action.className = "listing-section-action";
+    action.dataset.seeAll = type.key;
+    action.innerHTML = '<a href="' + type.key + '.php">See All <i class="fa fa-arrow-right"></i></a>';
+    container.insertBefore(action, container.firstChild);
+  }
+
+  function limitCards(cards){
+    cards.forEach((card, index) => {
+      card.style.display = index < 10 ? "" : "none";
+    });
+  }
+
+  function showOnly(cards, type){
+    cards.forEach(card => {
+      card.style.display = type.key === activeView ? "" : "none";
+    });
+
+    if(type.key !== activeView){
+      Array.from(new Set(cards.map(card => card.parentElement).filter(Boolean))).forEach(container => {
+        const hasActiveCards = types.some(activeType => {
+          return activeType.key === activeView && container.querySelector(activeType.selector);
+        });
+        if(!hasActiveCards){
+          container.style.display = "none";
+        }
+      });
+    }
+  }
+
+  if(isViewPage){
+    const title = document.createElement("div");
+    const selected = types.find(type => type.key === activeView);
+    title.className = "listing-view-title";
+    title.textContent = selected ? "All " + selected.label : "";
+    const host = document.querySelector(".container") || document.querySelector("main") || document.body;
+    host.insertBefore(title, host.firstChild);
+  }
+
+  types.forEach(type => {
+    const cards = Array.from(document.querySelectorAll(type.selector));
+    if(isViewPage){
+      showOnly(cards, type);
+    }else{
+      addSeeAll(cards, type);
+      limitCards(cards);
+    }
+  });
+})();
+</script>
 </body>
 </html>

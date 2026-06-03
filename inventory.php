@@ -74,7 +74,8 @@ if(isset($_POST['update_category'])){
 if(isset($_POST['add_service'])){
 
 $name = $_POST['service_name'];
-$desc = $_POST['service_description'];
+$desc = trim($_POST['service_description'] ?? '');
+$desc = $desc === '' ? null : $desc;
 $price = $_POST['service_price'];
 $duration = $_POST['service_duration'];
 
@@ -111,35 +112,6 @@ $image_name
 
 $stmt->execute();
 
-$service_id = $stmt->insert_id;
-
-/* SAVE MATERIALS */
-if(isset($_POST['material_id'])){
-
-for($i=0;$i<count($_POST['material_id']);$i++){
-
-$mat = $_POST['material_id'][$i];
-$qty = $_POST['material_qty'][$i];
-
-$stmt2=$conn->prepare("
-INSERT INTO service_materials
-(service_id,inventory_id,quantity)
-VALUES (?,?,?)
-");
-
-$stmt2->bind_param(
-"iii",
-$service_id,
-$mat,
-$qty
-);
-
-$stmt2->execute();
-
-}
-
-}
-
 header("Location: inventory.php?tab=services");
 exit;
 
@@ -152,7 +124,8 @@ if(isset($_POST['update_service'])){
 $id=$_POST['service_id'];
 
 $name=$_POST['service_name'];
-$desc=$_POST['service_description'];
+$desc=trim($_POST['service_description'] ?? '');
+$desc=$desc === '' ? null : $desc;
 $price=$_POST['service_price'];
 $duration=$_POST['service_duration'];
 
@@ -207,36 +180,6 @@ $owner_id
 
 $stmt->execute();
 
-/* DELETE OLD MATERIALS */
-$stmt=$conn->prepare("
-DELETE FROM service_materials
-WHERE service_id=?
-");
-
-$stmt->bind_param("i",$id);
-$stmt->execute();
-
-/* INSERT NEW MATERIALS */
-if(isset($_POST['material_id'])){
-
-for($i=0;$i<count($_POST['material_id']);$i++){
-
-$mat=$_POST['material_id'][$i];
-$qty=$_POST['material_qty'][$i];
-
-$stmt=$conn->prepare("
-INSERT INTO service_materials
-(service_id,inventory_id,quantity)
-VALUES (?,?,?)
-");
-
-$stmt->bind_param("iii",$id,$mat,$qty);
-$stmt->execute();
-
-}
-
-}
-
 header("Location: inventory.php?tab=services");
 exit;
 
@@ -249,7 +192,8 @@ exit;
 if(isset($_POST['add_inventory'])){
 
     $name = $_POST['name'];
-    $desc = $_POST['description'];
+    $desc = trim($_POST['description'] ?? '');
+    $desc = $desc === '' ? null : $desc;
     $price = $_POST['price'];
     $stock = $_POST['stock'];
     $category = $_POST['category_id'];
@@ -300,7 +244,8 @@ if(isset($_POST['update_inventory'])){
 
     $id = $_POST['id'];
     $name = $_POST['name'];
-    $desc = $_POST['description'];
+    $desc = trim($_POST['description'] ?? '');
+    $desc = $desc === '' ? null : $desc;
     $price = $_POST['price'];
     $stock = $_POST['stock'];
     $category = $_POST['category_id'];
@@ -422,7 +367,8 @@ if(isset($_POST['update_inventory'])){
 
     $id = $_POST['id'];
     $name = $_POST['name'];
-    $desc = $_POST['description'];
+    $desc = trim($_POST['description'] ?? '');
+    $desc = $desc === '' ? null : $desc;
     $price = $_POST['price'];
     $stock = $_POST['stock'];
     $category = $_POST['category_id'];
@@ -531,30 +477,11 @@ $inv_stmt->execute();
 
 $inventory=$inv_stmt->get_result();
 
-/* LOAD INVENTORY FOR MATERIAL SELECT */
-$inv_material_stmt=$conn->prepare("
-SELECT id,name FROM inventory
-WHERE owner_id=?
-ORDER BY name ASC
-");
-
-$inv_material_stmt->bind_param("i",$owner_id);
-$inv_material_stmt->execute();
-
-$inventory_materials=$inv_material_stmt->get_result();
-
 /* LOAD SERVICES */
 $svc_stmt = $conn->prepare("
-SELECT 
-s.*,
-GROUP_CONCAT(
-CONCAT(sm.inventory_id,':',sm.quantity)
-SEPARATOR '||'
-) as material_data
+SELECT s.*
 FROM services s
-LEFT JOIN service_materials sm ON sm.service_id = s.id
 WHERE s.owner_id=?
-GROUP BY s.id
 ORDER BY s.created_at DESC
 ");
 
@@ -598,6 +525,15 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
 <link rel="stylesheet" href="assets/css/inventory.css">
 <link rel="stylesheet" href="assets/css/responsive.css">
 
+<style>
+.modal-content label{
+display:block;
+margin:10px 0 5px;
+font-size:13px;
+font-weight:600;
+color:#334155;
+}
+</style>
 
 <?php require_once "config/theme.php"; render_theme_head(); ?>
 </head>
@@ -785,6 +721,7 @@ No products found
 
 <input type="hidden" name="category_id" id="category_id">
 
+<label for="category_name">Category Name</label>
 <input
 name="category"
 id="category_name"
@@ -943,7 +880,7 @@ border:1px solid #eee;
 </td>
 
 <td>
-<?= intval($svc['duration']) ?> mins
+<?= intval($svc['duration']) ?> hour<?= intval($svc['duration']) === 1 ? '' : 's' ?>
 </td>
 
 <td>
@@ -960,8 +897,7 @@ onclick='openViewServiceModal(
 <?= json_encode($svc["description"]) ?>,
 <?= json_encode($svc["price"]) ?>,
 <?= json_encode($svc["duration"]) ?>,
-<?= json_encode($svc["image"]) ?>,
-<?= json_encode($svc["material_data"]) ?>
+<?= json_encode($svc["image"]) ?>
 
 )'
 >
@@ -976,8 +912,7 @@ event,
 <?= json_encode($svc["description"]) ?>,
 <?= json_encode($svc["price"]) ?>,
 <?= json_encode($svc["duration"]) ?>,
-<?= json_encode($svc["image"]) ?>,
-<?= json_encode($svc["material_data"]) ?>
+<?= json_encode($svc["image"]) ?>
 )'
 
 >
@@ -1131,6 +1066,7 @@ No expiration items found
 
 
 <!-- PRODUCT NAME -->
+<label for="edit_name">Product Name</label>
 <input 
 name="name" 
 id="edit_name" 
@@ -1140,13 +1076,16 @@ required
 
 
 <!-- DESCRIPTION -->
+<label for="description_field">Description</label>
 <textarea 
 name="description" 
 id="description_field"
->N/A</textarea>
+placeholder="Description"
+></textarea>
 
 
 <!-- PRICE -->
+<label for="edit_price">Price</label>
 <input 
 name="price" 
 id="edit_price" 
@@ -1158,6 +1097,7 @@ required
 
 
 <!-- STOCK -->
+<label for="edit_stock">Stock</label>
 <input 
 name="stock" 
 id="edit_stock" 
@@ -1168,6 +1108,7 @@ required
 
 
 <!-- CATEGORY -->
+<label for="edit_category">Category</label>
 <select 
 name="category_id" 
 id="edit_category" 
@@ -1201,7 +1142,8 @@ data-name="<?= strtolower($cat['name']) ?>"
 </div>
 
 <!-- IMAGE -->
-<input type="file" name="image">
+<label for="edit_image">Product Image</label>
+<input type="file" name="image" id="edit_image">
 
 
 <!-- BUTTON -->
@@ -1297,12 +1239,7 @@ display:none;
 
 <div style="margin-bottom:8px;">
 <b>Duration:</b><br>
-<span id="view_service_duration">0</span> mins
-</div>
-
-<div style="margin-bottom:8px;">
-<b>Materials Used:</b><br>
-<div id="view_service_materials" style="margin-top:5px;"></div>
+<span id="view_service_duration">0</span> hour(s)
 </div>
 
 </div>
@@ -1317,6 +1254,7 @@ display:none;
 
 <input type="hidden" name="service_id" id="edit_service_id">
 
+<label for="edit_service_name">Service Name</label>
 <input
 name="service_name"
 id="edit_service_name"
@@ -1324,12 +1262,14 @@ placeholder="Service Name"
 required
 >
 
+<label for="edit_service_description">Description</label>
 <textarea
 name="service_description"
 id="edit_service_description"
 placeholder="Description"
->N/A</textarea>
+></textarea>
 
+<label for="edit_service_price">Price</label>
 <input
 name="service_price"
 id="edit_service_price"
@@ -1339,27 +1279,22 @@ placeholder="Price"
 required
 >
 
+<label for="edit_service_duration">Duration</label>
 <input
 name="service_duration"
 id="edit_service_duration"
 type="number"
-placeholder="Duration (minutes)"
+placeholder="Duration (hours)"
 required
 >
 
+<label for="service_image">Service Image</label>
 <input
 type="file"
 name="service_image"
+id="service_image"
 accept="image/*"
 >
-
-<label>Materials Used</label>
-
-<div id="materialsContainer"></div>
-
-<button type="button" onclick="addMaterialRow()" class="add-btn">
-+ Add Material
-</button>
 
 <button name="add_service" id="serviceSubmitBtn">
 Add Service
@@ -1389,7 +1324,7 @@ modal.classList.add("show");
 
 document.getElementById("inventoryForm").reset();
 
-document.getElementById("description_field").value = "N/A";
+document.getElementById("description_field").value = "";
 
 document.getElementById("edit_id").value = "";
 
@@ -1425,6 +1360,18 @@ function openServiceModal(){
 const modal = document.getElementById("serviceModal");
 
 modal.classList.add("show");
+
+document.getElementById("serviceForm").reset();
+
+document.getElementById("edit_service_id").value="";
+
+document.getElementById("edit_service_description").value="";
+
+const btn = document.getElementById("serviceSubmitBtn");
+
+btn.innerText="Add Service";
+
+btn.name="add_service";
 
 }
 
@@ -1475,7 +1422,7 @@ image.style.display = "none";
 
 }
 
-function openEditServiceModal(id,name,desc,price,duration,image,materials){
+function openEditServiceModal(id,name,desc,price,duration,image){
 
 const modal = document.getElementById("serviceModal");
 
@@ -1484,7 +1431,7 @@ modal.classList.add("show");
 /* SET BASIC VALUES */
 document.getElementById("edit_service_id").value=id;
 document.getElementById("edit_service_name").value=name;
-document.getElementById("edit_service_description").value=desc;
+document.getElementById("edit_service_description").value=desc || "";
 document.getElementById("edit_service_price").value=price;
 document.getElementById("edit_service_duration").value=duration;
 
@@ -1493,67 +1440,6 @@ const btn = document.getElementById("serviceSubmitBtn");
 
 btn.innerText="Update Service";
 btn.name="update_service";
-
-/* LOAD MATERIALS */
-const container=document.getElementById("materialsContainer");
-
-container.innerHTML="";
-
-if(materials){
-
-const list=materials.split("||");
-
-list.forEach(function(item){
-
-const parts=item.split(":");
-
-const inventory_id=parts[0];
-const qty=parts[1];
-
-const row=document.createElement("div");
-
-row.className="material-row";
-
-row.innerHTML=`
-<select name="material_id[]" required>
-
-<option value="">Select Material</option>
-
-<?php
-$inventory_materials->data_seek(0);
-while($item=$inventory_materials->fetch_assoc()){
-echo '<option value="'.$item['id'].'">'.htmlspecialchars($item['name']).'</option>';
-}
-?>
-
-
-</select>
-
-<input
-type="number"
-name="material_qty[]"
-placeholder="Quantity"
-min="1"
-required
->
-
-<button
-type="button"
-onclick="removeMaterialRow(this)"
-class="material-remove"
->
-<i class="fa-solid fa-xmark"></i>
-</button>
-`;
-
-container.appendChild(row);
-
-row.querySelector("select").value=inventory_id;
-row.querySelector("input").value=qty;
-
-});
-
-}
 
 }
 
@@ -1567,7 +1453,7 @@ modal.classList.add("show");
 
 document.getElementById("edit_id").value = id;
 document.getElementById("edit_name").value = name;
-document.getElementById("description_field").value = desc;
+document.getElementById("description_field").value = desc || "";
 document.getElementById("edit_price").value = price;
 document.getElementById("edit_stock").value = stock;
 document.getElementById("edit_category").value = cat;
@@ -1718,64 +1604,7 @@ noRow.style.display="none";
 }
 
 }
-function addMaterialRow(){
-
-const container=document.getElementById("materialsContainer");
-
-const row=document.createElement("div");
-
-row.className="material-row";
-
-row.innerHTML=`
-<select name="material_id[]" required>
-
-<option value="">Select Material</option>
-
-<?php
-$inventory_materials->data_seek(0);
-while($item=$inventory_materials->fetch_assoc()){
-echo '<option value="'.$item['id'].'">'.htmlspecialchars($item['name']).'</option>';
-}
-?>
-
-</select>
-
-<input
-type="number"
-name="material_qty[]"
-placeholder="Quantity"
-min="1"
-required
->
-
-<button
-type="button"
-onclick="removeMaterialRow(this)"
-class="material-remove"
->
-<i class="fa-solid fa-xmark"></i>
-</button>
-`;
-
-container.appendChild(row);
-
-}
-
-
-function removeMaterialRow(button){
-
-const container =
-document.getElementById("materialsContainer");
-
-if(container.children.length > 1){
-
-button.parentElement.remove();
-
-}
-
-}
-
-function openViewServiceModal(name,desc,price,duration,image,materials){
+function openViewServiceModal(name,desc,price,duration,image){
 
 const modal = document.getElementById("viewServiceModal");
 
@@ -1797,41 +1626,10 @@ img.style.display = "block";
 img.style.display = "none";
 }
 
-/* MATERIALS */
-const container = document.getElementById("view_service_materials");
-
-container.innerHTML = "";
-
-if(materials && materials !== "null"){
-
-const list = materials.split("||");
-
-list.forEach(function(item){
-
-const div = document.createElement("div");
-
-div.style.padding = "6px 10px";
-div.style.marginBottom = "5px";
-div.style.border = "1px solid #eee";
-div.style.borderRadius = "6px";
-div.style.background = "#fafafa";
-
-div.innerText = item;
-
-container.appendChild(div);
-
-});
-
-}else{
-
-container.innerHTML = "<span style='color:#888;'>No materials</span>";
-
-}
-
 }
 
 
-function openServiceDropdown(event,id,name,desc,price,duration,image,materials){
+function openServiceDropdown(event,id,name,desc,price,duration,image){
 
 event.stopPropagation();
 
@@ -1849,7 +1647,7 @@ document.getElementById("dropdownDelete").href =
 document.getElementById("dropdownEdit").onclick=function(){
 
 openEditServiceModal(
-id,name,desc,price,duration,image,materials
+id,name,desc,price,duration,image
 );
 
 
