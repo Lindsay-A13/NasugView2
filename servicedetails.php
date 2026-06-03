@@ -78,7 +78,7 @@ if(!$service){
 }
 
 $serviceDuration = max(1, (int) ($service['duration'] ?? 1));
-$unitLabel = $serviceDuration >= 1440 ? "day" : "session";
+$unitLabel = "session";
 
 if(isset($_POST['ajax_add_service'])){
     $units = max(1, (int) ($_POST['units'] ?? 1));
@@ -378,7 +378,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 
       <div class="service-meta">
         <div class="meta-chip"><i class="fa fa-store"></i><?= htmlspecialchars($service['business_name']) ?></div>
-        <div class="meta-chip"><i class="fa fa-clock"></i><?= (int) $service['duration'] ?> mins</div>
+        <div class="meta-chip"><i class="fa fa-clock"></i><?= (int) $service['duration'] ?> hour<?= (int) $service['duration'] === 1 ? '' : 's' ?></div>
       </div>
 
       <div class="service-price">&#8369;<?= number_format((float) $service['price'], 2) ?></div>
@@ -439,7 +439,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
         </button>
 
         <div class="booking-note" id="bookingSummary">
-          1 <?= htmlspecialchars($unitLabel) ?> = <?= (int) $serviceDuration ?> minutes. Total: <?= (int) $serviceDuration ?> minutes.
+          Duration: <?= (int) $serviceDuration ?> hour<?= (int) $serviceDuration === 1 ? '' : 's' ?> per <?= htmlspecialchars($unitLabel) ?>.
         </div>
       </div>
     </div>
@@ -469,7 +469,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
     <div class="panel">
       <h2>Service Details</h2>
       <div class="details-list">
-        <div class="details-item"><i class="fa fa-clock"></i><span><?= (int) $service['duration'] ?> minute<?= (int) $service['duration'] === 1 ? '' : 's' ?></span></div>
+        <div class="details-item"><i class="fa fa-clock"></i><span><?= (int) $service['duration'] ?> hour<?= (int) $service['duration'] === 1 ? '' : 's' ?></span></div>
         <div class="details-item"><i class="fa fa-money-bill-wave"></i><span>&#8369;<?= number_format((float) $service['price'], 2) ?></span></div>
         <div class="details-item"><i class="fa fa-star"></i><span><?= $totalReviews > 0 ? number_format($avgRating, 1) : '0.0' ?> average rating</span></div>
       </div>
@@ -583,11 +583,11 @@ const serviceDuration = <?= (int) $serviceDuration ?>;
 const serviceUnitLabel = <?= json_encode($unitLabel) ?>;
 
 function updateBookingSummary(){
-  const totalMinutes = bookingUnits * serviceDuration;
   document.getElementById("bookingUnits").innerText = bookingUnits;
   document.getElementById("bookingSummary").innerText =
-    bookingUnits + " " + serviceUnitLabel + (bookingUnits === 1 ? "" : "s") +
-    " = " + totalMinutes + " minutes total.";
+    "Duration: " + serviceDuration + " hour" + (serviceDuration === 1 ? "" : "s") +
+    " per " + serviceUnitLabel + ". Selected: " + bookingUnits + " " +
+    serviceUnitLabel + (bookingUnits === 1 ? "" : "s") + ".";
 }
 
 function increaseUnits(){

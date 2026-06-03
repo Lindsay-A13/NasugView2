@@ -686,7 +686,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 <img src="uploads/services/<?= htmlspecialchars($row['image'] ?: 'default_service.jpg') ?>" class="listing-image" alt="<?= htmlspecialchars($row['name']) ?>">
 <div class="listing-body">
 <div class="listing-name"><?= htmlspecialchars($row['name']) ?></div>
-<div class="listing-subtitle"><?= (int) $row['duration'] ?> mins</div>
+<div class="listing-subtitle"><?= (int) $row['duration'] ?> hour<?= (int) $row['duration'] === 1 ? '' : 's' ?></div>
 <div class="listing-price">&#8369;<?= number_format((float) $row['price'], 2) ?></div>
 </div>
 </a>

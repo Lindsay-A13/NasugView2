@@ -1184,13 +1184,22 @@ line-height:1.25;
 }
 
 .review-business{
-display:inline-flex;
+display:flex;
 align-items:center;
 gap:5px;
 margin-top:3px;
 font-size:13px;
 font-weight:700;
-color:#2563eb;
+max-width:100%;
+color:#0057d9 !important;
+line-height:1.25;
+text-decoration:none;
+white-space:normal;
+overflow-wrap:anywhere;
+min-height:16px;
+visibility:visible !important;
+opacity:1 !important;
+width:fit-content;
 }
 
 .review-business:before{
@@ -1198,6 +1207,10 @@ content:"\f54e";
 font-family:"Font Awesome 6 Free";
 font-weight:900;
 font-size:11px;
+}
+
+.review-business:hover{
+text-decoration:underline;
 }
 
 .review-date{
