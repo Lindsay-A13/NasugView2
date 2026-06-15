@@ -166,7 +166,7 @@ cursor:pointer;
 }
 
 .star.active{
-color:#001a47;
+color:#f59e0b;
 }
 
 textarea{
