@@ -34,6 +34,7 @@ if(isset($_POST['cancel'])){
 
 $allowedTabs = ['All','Pending','For Payment','Completed','Cancelled','Refund'];
 $currentTab = $_GET['tab'] ?? 'All';
+$search = trim($_GET['search'] ?? '');
 
 if(!in_array($currentTab, $allowedTabs, true)){
     $currentTab = 'All';
@@ -58,10 +59,25 @@ if($currentTab !== 'All'){
     $query .= " AND o.status = '" . $currentTab . "'";
 }
 
+if($search !== ''){
+    $query .= " AND (
+        o.order_code LIKE ?
+        OR COALESCE(i.name, s.name) LIKE ?
+        OR b.business_name LIKE ?
+    )";
+}
+
 $query .= " ORDER BY o.created_at DESC";
 
 $stmt = $conn->prepare($query);
-$stmt->bind_param("iss", $user_id, $account_type, $account_type);
+
+if($search !== ''){
+    $searchLike = '%' . $search . '%';
+    $stmt->bind_param("isssss", $user_id, $account_type, $account_type, $searchLike, $searchLike, $searchLike);
+} else {
+    $stmt->bind_param("iss", $user_id, $account_type, $account_type);
+}
+
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -86,6 +102,12 @@ body{margin:0;font-family:Arial,sans-serif;background:#f4f6f9}
 .container{width:100%;padding:15px}
 @media(min-width:768px){.container{max-width:1500px;margin:0 auto;padding:25px}}
 h2{margin:0 0 15px;color:#001a47}
+.order-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.order-search{display:flex;gap:8px;align-items:center;width:100%;max-width:520px}
+.order-search input{flex:1;min-width:180px;padding:10px 12px;border:1px solid #d0d7de;border-radius:10px;font-size:14px}
+.search-btn,.clear-search{padding:10px 14px;border:0;border-radius:10px;font-size:13px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.search-btn{background:#001a47;color:#fff}
+.clear-search{background:#e9ecef;color:#001a47}
 .tabs{display:flex;gap:10px;margin-bottom:20px;overflow-x:auto}
 .tabs::-webkit-scrollbar{display:none}
 .tab{padding:6px 14px;border-radius:20px;background:#e9ecef;text-decoration:none;color:#001a47;font-size:13px;white-space:nowrap}
@@ -138,18 +160,28 @@ h2{margin:0 0 15px;color:#001a47}
 <div class="page-wrapper">
 <div class="container">
 
+<div class="order-toolbar">
 <h2>My Orders</h2>
+<form class="order-search" method="GET" action="orders.php">
+    <input type="hidden" name="tab" value="<?= htmlspecialchars($currentTab) ?>">
+    <input type="search" name="search" placeholder="Search order code, product, or business" value="<?= htmlspecialchars($search) ?>">
+    <button type="submit" class="search-btn">Search</button>
+    <?php if($search !== ''): ?>
+    <a class="clear-search" href="orders.php?tab=<?= urlencode($currentTab) ?>">Clear</a>
+    <?php endif; ?>
+</form>
+</div>
 
 <div class="tabs">
 <?php foreach($allowedTabs as $tab): ?>
-<a class="tab <?= $currentTab === $tab ? 'active' : '' ?>" href="orders.php?tab=<?= urlencode($tab) ?>">
+<a class="tab <?= $currentTab === $tab ? 'active' : '' ?>" href="orders.php?<?= htmlspecialchars(http_build_query(['tab' => $tab, 'search' => $search])) ?>">
     <?= htmlspecialchars($tab) ?>
 </a>
 <?php endforeach; ?>
 </div>
 
 <?php if(empty($grouped)): ?>
-<div class="no-orders">No orders found.</div>
+<div class="no-orders"><?= $search !== '' ? 'No orders matched your search.' : 'No orders found.' ?></div>
 <?php endif; ?>
 
 <?php foreach($grouped as $code => $items): ?>

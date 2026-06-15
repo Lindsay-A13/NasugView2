@@ -546,7 +546,7 @@ $conn->close();
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <?php require_once "config/theme.php"; render_theme_head(); ?>
-<link rel="stylesheet" href="assets/css/login.css?v=17">
+<link rel="stylesheet" href="assets/css/login.css?v=20">
 </head>
 <body>
 <?php include 'mobile_back_button.php'; ?>
@@ -644,7 +644,18 @@ $conn->close();
                 <input type="text" name="business_name" id="business_name" placeholder="Store Name" class="textbox" value="<?php echo htmlspecialchars(oldInput('business_name')); ?>" disabled>
             </div>
 
-            <input type="email" name="email" placeholder="Email" value="<?php echo htmlspecialchars(oldInput('email')); ?>" required>
+            <?php
+                $signupEmailValue = oldInput('email');
+                $signupEmailSuffix = '@gmail.com';
+                $signupEmailName = str_ends_with(strtolower($signupEmailValue), $signupEmailSuffix)
+                    ? substr($signupEmailValue, 0, -strlen($signupEmailSuffix))
+                    : $signupEmailValue;
+            ?>
+            <div class="signup-email-field">
+                <input type="text" id="signupEmailName" class="signup-email-name" placeholder="Email" value="<?php echo htmlspecialchars($signupEmailName); ?>" required>
+                <span class="signup-email-suffix">@gmail.com</span>
+            </div>
+            <input type="hidden" name="email" id="signupEmail" value="<?php echo htmlspecialchars($signupEmailValue); ?>">
 
             <div class="password-field">
                 <input
@@ -756,8 +767,21 @@ const togglePassword = document.getElementById('togglePassword');
 const passwordInput = document.getElementById('password');
 const toggleLoginPassword = document.getElementById('toggleLoginPassword');
 const loginPassword = document.getElementById('loginPassword');
+const signupEmail = document.getElementById('signupEmail');
+const signupEmailName = document.getElementById('signupEmailName');
 const birthdayInput = document.getElementById('birthday');
 const forgotPasswordLink = document.getElementById('forgotPasswordLink');
+
+if(signupEmail && signupEmailName){
+    const defaultEmailSuffix = '@gmail.com';
+    const updateSignupEmail = function(){
+        signupEmail.value = signupEmailName.value.trim() + defaultEmailSuffix;
+    };
+
+    signupEmailName.addEventListener('input', updateSignupEmail);
+    signupEmailName.closest('form').addEventListener('submit', updateSignupEmail);
+    updateSignupEmail();
+}
 
 if(forgotPasswordLink){
     forgotPasswordLink.addEventListener('click', function(e){

@@ -872,7 +872,7 @@ min-width:0;
 display:flex;
 align-items:center;
 gap:1px;
-color:#3b82f6;
+color:#f59e0b;
 font-size:10px;
 }
 
@@ -1580,7 +1580,7 @@ color:#d4d4d4;
 .theme-dark .location i,
 .theme-dark .review-business,
 .theme-dark .card-info:after{
-color:#60a5fa;
+color:#f59e0b;
 }
 
 .theme-dark .review-text,

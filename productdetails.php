@@ -256,7 +256,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .meta-chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#f8fafc;border:1px solid #e2e8f0;font-size:13px;color:#334155}
 .price{font-size:30px;font-weight:700;color:#001a47;margin:10px 0 14px}
 .rating-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px}
-.rating-stars{display:flex;gap:4px;color:#001a47}
+.rating-stars{display:flex;gap:4px;color:#f59e0b}
 .rating-text{font-size:14px;color:#64748b}
 .description{line-height:1.7;color:#334155;margin-bottom:18px;white-space:pre-wrap}
 .action-row{display:flex;gap:12px;flex-wrap:wrap}
@@ -271,7 +271,9 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .stock-badge.out-stock{background:#fef2f2;color:#b91c1c}
 .qty-control{display:inline-flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;border:1px solid #dbe2ea;background:#fff}
 .qty-btn{width:34px;height:34px;border:none;border-radius:10px;background:#e2e8f0;color:#0f172a;font-size:18px;cursor:pointer}
-.qty-value{min-width:20px;text-align:center;font-size:16px;font-weight:700;color:#001a47}
+.qty-value{width:54px;min-width:54px;text-align:center;font-size:16px;font-weight:700;color:#001a47;border:0;outline:0;background:transparent}
+.qty-value::-webkit-outer-spin-button,
+.qty-value::-webkit-inner-spin-button{margin:0}
 .btn-cart{width:100%;margin-top:14px;padding:14px;border:none;border-radius:12px;background:#001a47;color:#fff;cursor:pointer;font-weight:600;font-size:15px}
 .btn-cart:disabled{background:#94a3b8;cursor:not-allowed}
 .purchase-note{margin-top:10px;font-size:13px;color:#64748b}
@@ -285,12 +287,13 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .details-list{display:flex;flex-direction:column;gap:10px}
 .details-item{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:#334155}
 .details-item i{width:16px;color:#001a47;margin-top:2px}
+.details-item i.fa-star{color:#f59e0b}
 .reviews-section{margin-top:28px;background:#fff;padding:20px;border-radius:16px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
 .reviews-header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px}
 .review-summary{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .review-score{font-size:30px;font-weight:700;color:#001a47;line-height:1}
 .review-meta{display:flex;flex-direction:column;gap:4px}
-.review-stars{display:flex;gap:3px;color:#001a47}
+.review-stars{display:flex;gap:3px;color:#f59e0b}
 .review-count{font-size:14px;color:#64748b}
 .btn-rate{background:#001a47;color:#fff;border:none;padding:10px 18px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600}
 .review-status{margin-bottom:14px;padding:12px 14px;border-radius:10px;font-size:14px}
@@ -303,7 +306,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .review-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:#f1f5f9}
 .review-name{font-weight:600;color:#0f172a}
 .review-date{font-size:13px;color:#64748b;margin-top:2px}
-.review-rating{display:flex;gap:3px;color:#001a47}
+.review-rating{display:flex;gap:3px;color:#f59e0b}
 .review-comment{line-height:1.6;color:#334155;white-space:pre-wrap}
 .empty-reviews{padding:18px;border:1px dashed #cbd5e1;border-radius:14px;text-align:center;color:#64748b;background:#f8fafc}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;justify-content:center;align-items:center;padding:16px;z-index:3000;overflow-y:auto}
@@ -313,11 +316,14 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .modal-subtitle{font-size:14px;color:#64748b;margin:-4px 0 16px}
 .stars{display:flex;gap:6px;font-size:24px;margin-bottom:12px}
 .stars i{color:#d1d5db;cursor:pointer;transition:color .15s ease,transform .15s ease}
-.stars i.active{color:#001a47}
+.stars i.active{color:#f59e0b}
 .stars i:hover{transform:scale(1.06)}
 .modal textarea{width:100%;height:110px;border-radius:10px;border:1px solid #e5e7eb;padding:12px;margin-bottom:12px;resize:none;font:inherit;box-sizing:border-box}
 .anonymous-toggle{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:#334155;font-size:14px}
 .submit-review{width:100%;padding:12px;border:none;border-radius:12px;background:#001a47;color:#fff;font-weight:600;cursor:pointer}
+.message-modal-text{line-height:1.6;color:#334155;margin:0 0 18px}
+.message-modal-actions{display:flex;justify-content:flex-end}
+.message-modal-ok{padding:10px 18px;border:none;border-radius:10px;background:#001a47;color:#fff;font-weight:600;cursor:pointer}
 @media (max-width:768px){
   .header{
     display:none;
@@ -416,7 +422,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 
 <div class="qty-control">
 <button type="button" class="qty-btn" onclick="decreaseQty()">-</button>
-<span id="qty" class="qty-value">1</span>
+<input type="number" id="qty" class="qty-value" value="1" min="1" max="<?= $stockCount ?>" inputmode="numeric" <?= $canAddToCart ? '' : 'disabled' ?>>
 <button type="button" class="qty-btn" onclick="increaseQty()">+</button>
 </div>
 
@@ -556,29 +562,68 @@ Post as Anonymous
 </div>
 </div>
 
+<div class="modal" id="messageModal">
+<div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="messageModalTitle">
+<i class="fa fa-times modal-close" onclick="closeMessageModal()"></i>
+<h4 id="messageModalTitle" style="margin-top:0;">Quantity Notice</h4>
+<p class="message-modal-text" id="messageModalText"></p>
+<div class="message-modal-actions">
+<button type="button" class="message-modal-ok" onclick="closeMessageModal()">OK</button>
+</div>
+</div>
+</div>
+
 <script>
 let quantity = 1;
 const maxStock = <?= $stockCount ?>;
+const qtyInput = document.getElementById("qty");
+
+function clampQty(value){
+  let nextQty = parseInt(value, 10);
+
+  if(Number.isNaN(nextQty) || nextQty < 1){
+    nextQty = 1;
+  }
+
+  if(maxStock > 0 && nextQty > maxStock){
+    nextQty = maxStock;
+  }
+
+  return nextQty;
+}
+
+function setQty(value){
+  quantity = clampQty(value);
+  qtyInput.value = quantity;
+}
 
 function increaseQty(){
   if(maxStock > 0 && quantity < maxStock){
-    quantity++;
-    document.getElementById("qty").innerText = quantity;
+    setQty(quantity + 1);
   }
 }
 
 function decreaseQty(){
   if(quantity > 1){
-    quantity--;
-    document.getElementById("qty").innerText = quantity;
+    setQty(quantity - 1);
   }
 }
+
+qtyInput.addEventListener("input", function(){
+  quantity = clampQty(this.value);
+});
+
+qtyInput.addEventListener("blur", function(){
+  setQty(this.value);
+});
 
 function addToCartAnimation(){
   const addToCartBtn = document.getElementById("addToCartBtn");
   if(addToCartBtn.disabled){
     return;
   }
+
+  setQty(qtyInput.value);
 
   const productImg = document.getElementById("productImage");
   const desktopCartIcon = document.getElementById("cartIcon");
@@ -636,9 +681,9 @@ function addToCartAnimation(){
       flyImg.remove();
 
       if(result === "out_of_stock"){
-        alert("This product is out of stock.");
+        openMessageModal("This product is out of stock.");
       } else if(result === "stock_limit"){
-        alert("Requested quantity exceeds available stock.");
+        openMessageModal("Requested quantity exceeds available stock.");
       }
       return;
     }
@@ -676,6 +721,20 @@ function addToCartAnimation(){
 const modal = document.getElementById("modal");
 const modalContent = modal.querySelector(".modal-content");
 const ratingInput = document.getElementById("ratingInput");
+const messageModal = document.getElementById("messageModal");
+const messageModalContent = messageModal.querySelector(".modal-content");
+const messageModalText = document.getElementById("messageModalText");
+
+function openMessageModal(message){
+  messageModalText.textContent = message;
+  messageModal.classList.add("active");
+  document.body.style.overflow = "hidden";
+}
+
+function closeMessageModal(){
+  messageModal.classList.remove("active");
+  document.body.style.overflow = modal.classList.contains("active") ? "hidden" : "auto";
+}
 
 function openModal(){
   modal.classList.add("active");
@@ -697,8 +756,20 @@ modalContent.addEventListener("click", function(e){
   e.stopPropagation();
 });
 
+messageModal.addEventListener("click", function(e){
+  if(e.target === messageModal){
+    closeMessageModal();
+  }
+});
+
+messageModalContent.addEventListener("click", function(e){
+  e.stopPropagation();
+});
+
 document.addEventListener("keydown", function(e){
-  if(e.key === "Escape" && modal.classList.contains("active")){
+  if(e.key === "Escape" && messageModal.classList.contains("active")){
+    closeMessageModal();
+  } else if(e.key === "Escape" && modal.classList.contains("active")){
     closeModal();
   }
 });

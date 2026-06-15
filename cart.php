@@ -11,6 +11,7 @@ if(!isset($_SESSION['user_id'])){
 
 $user_id = $_SESSION['user_id'];
 $account_type = $_SESSION['account_type'];
+$search = trim($_GET['search'] ?? '');
 
 ensureOrderPaymentSupport($conn);
 
@@ -21,7 +22,7 @@ if(isset($_GET['delete'])){
     $del->bind_param("iis",$cart_id,$user_id,$account_type);
     $del->execute();
     $del->close();
-    header("Location: cart.php");
+    header("Location: cart.php" . ($search !== '' ? "?search=" . urlencode($search) : ""));
     exit;
 }
 
@@ -36,7 +37,8 @@ if(isset($_POST['delete_selected'])){
             $del->close();
         }
     }
-    header("Location: cart.php");
+    $redirectSearch = trim($_POST['search'] ?? '');
+    header("Location: cart.php" . ($redirectSearch !== '' ? "?search=" . urlencode($redirectSearch) : ""));
     exit;
 }
 
@@ -59,7 +61,11 @@ if(isset($_POST['update_qty'])){
 if(isset($_POST['checkout_selected'])){
 
     if(empty($_POST['selected'])){
-        header("Location: cart.php?no_selected=1");
+        $redirectParams = ['no_selected' => 1];
+        if(!empty($_POST['search'])){
+            $redirectParams['search'] = trim($_POST['search']);
+        }
+        header("Location: cart.php?" . http_build_query($redirectParams));
         exit;
     }
 
@@ -201,7 +207,7 @@ if($item['type'] === "product" && $item['quantity'] > $item['stock']){
 }
 
 /* ================= LOAD CART ================= */
-$stmt = $conn->prepare("
+$query = "
     SELECT
            cart.*,
            COALESCE(inventory.name, services.name) AS name,
@@ -215,9 +221,26 @@ $stmt = $conn->prepare("
     LEFT JOIN services ON cart.service_id = services.id
     JOIN business_owner ON cart.business_id = business_owner.b_id
     WHERE cart.consumer_id=? AND cart.account_type=?
-    ORDER BY cart.business_id DESC
-");
-$stmt->bind_param("is",$user_id,$account_type);
+";
+
+if($search !== ''){
+    $query .= " AND (
+        COALESCE(inventory.name, services.name) LIKE ?
+        OR business_owner.business_name LIKE ?
+    )";
+}
+
+$query .= " ORDER BY cart.business_id DESC";
+
+$stmt = $conn->prepare($query);
+
+if($search !== ''){
+    $searchLike = '%' . $search . '%';
+    $stmt->bind_param("isss", $user_id, $account_type, $searchLike, $searchLike);
+} else {
+    $stmt->bind_param("is", $user_id, $account_type);
+}
+
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -251,12 +274,21 @@ $stmt->close();
 <button class="edit-btn" onclick="toggleEdit()" id="editToggle">Edit</button>
 </div>
 
+<form class="cart-search" method="GET" action="cart.php">
+<input type="search" name="search" placeholder="Search product, service, or business" value="<?= htmlspecialchars($search) ?>">
+<button type="submit">Search</button>
+<?php if($search !== ''): ?>
+<a href="cart.php">Clear</a>
+<?php endif; ?>
+</form>
+
 <form method="POST" id="bulkForm">
+<input type="hidden" name="search" value="<?= htmlspecialchars($search) ?>">
 
 <?php if(empty($grouped)): ?>
 <div class="empty">
 <i class="fa fa-shopping-cart" style="font-size:50px;color:#ccc;"></i>
-<p>Your cart is empty.</p>
+<p><?= $search !== '' ? 'No cart items matched your search.' : 'Your cart is empty.' ?></p>
 </div>
 <?php else: ?>
 
@@ -434,6 +466,7 @@ Checkout
 <script>
 let editMode = false;
 let deleteCartId = null;
+const currentSearch = <?= json_encode($search) ?>;
 
 function openDeleteModal(cartId){
     deleteCartId = cartId;
@@ -447,7 +480,11 @@ function closeDeleteModal(){
 
 function confirmDelete(){
     if(deleteCartId){
-        window.location.href = "cart.php?delete="+deleteCartId;
+        const params = new URLSearchParams({delete: deleteCartId});
+        if(currentSearch){
+            params.set("search", currentSearch);
+        }
+        window.location.href = "cart.php?"+params.toString();
     }
 }
 
