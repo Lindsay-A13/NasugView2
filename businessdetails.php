@@ -4,9 +4,86 @@ session_start();
 require_once "config/db.php";
 require_once "config/cart_count.php";
 
+function ensureReviewReplyColumns(mysqli $conn): void {
+    $columns = [
+        "owner_reply" => "ALTER TABLE reviews ADD COLUMN owner_reply TEXT NULL AFTER is_hidden",
+        "owner_reply_at" => "ALTER TABLE reviews ADD COLUMN owner_reply_at DATETIME NULL AFTER owner_reply"
+    ];
+
+    foreach($columns as $column => $sql){
+        $check = $conn->prepare("
+            SELECT 1
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'reviews'
+              AND COLUMN_NAME = ?
+            LIMIT 1
+        ");
+
+        if(!$check){
+            continue;
+        }
+
+        $check->bind_param("s", $column);
+        $check->execute();
+        $exists = $check->get_result()->num_rows > 0;
+        $check->close();
+
+        if(!$exists){
+            $conn->query($sql);
+        }
+    }
+}
+
+ensureReviewReplyColumns($conn);
+
 if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['user_id'])){
     $user_id = (int) $_SESSION['user_id'];
     $business_id = (int) ($_POST['business_id'] ?? 0);
+    $account_type = $_SESSION['account_type'] ?? '';
+
+    if(isset($_POST['save_owner_reply'])){
+        $review_id = (int) ($_POST['review_id'] ?? 0);
+        $reply = trim($_POST['owner_reply'] ?? '');
+
+        if($review_id > 0 && $business_id > 0 && $reply !== '' && $account_type === 'business_owner' && $user_id === $business_id){
+            $stmt = $conn->prepare("
+                UPDATE reviews
+                SET owner_reply = ?, owner_reply_at = NOW()
+                WHERE id = ? AND business_id = ?
+            ");
+            $stmt->bind_param("sii", $reply, $review_id, $business_id);
+            $stmt->execute();
+            $stmt->close();
+
+            header("Location: businessdetails.php?id=" . $business_id . "&review=reply_saved#review-" . $review_id);
+            exit();
+        }
+
+        header("Location: businessdetails.php?id=" . $business_id . "&review=reply_invalid#reviews");
+        exit();
+    }
+
+    if(isset($_POST['delete_owner_reply'])){
+        $review_id = (int) ($_POST['review_id'] ?? 0);
+
+        if($review_id > 0 && $business_id > 0 && $account_type === 'business_owner' && $user_id === $business_id){
+            $stmt = $conn->prepare("
+                UPDATE reviews
+                SET owner_reply = NULL, owner_reply_at = NULL
+                WHERE id = ? AND business_id = ?
+            ");
+            $stmt->bind_param("ii", $review_id, $business_id);
+            $stmt->execute();
+            $stmt->close();
+
+            header("Location: businessdetails.php?id=" . $business_id . "&review=reply_deleted#review-" . $review_id);
+            exit();
+        }
+
+        header("Location: businessdetails.php?id=" . $business_id . "&review=reply_invalid#reviews");
+        exit();
+    }
 
     if(isset($_POST['update_review'])){
         $review_id = (int) ($_POST['review_id'] ?? 0);
@@ -517,6 +594,16 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .review-status{margin-bottom:14px;padding:12px 14px;border-radius:10px;font-size:14px}
 .review-status.success{background:#ecfdf3;color:#166534;border:1px solid #bbf7d0}
 .review-status.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+.owner-reply{margin-top:14px;padding:13px 14px;border-radius:12px;background:#f8fbff;border:1px solid #cfe0f5;color:#334155}
+.owner-reply-label{font-weight:700;color:#001a47;margin-bottom:6px}
+.owner-reply-date{font-size:12px;color:#64748b;margin-top:6px}
+.owner-reply-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.owner-reply-editor{display:block}
+.owner-reply-editor summary{list-style:none}
+.owner-reply-editor summary::-webkit-details-marker{display:none}
+.owner-reply-form{margin-top:14px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}
+.owner-reply-form textarea{width:100%;min-height:86px;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font:inherit;resize:vertical}
+.owner-reply-form .review-actions{margin-top:10px}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:3000;align-items:center;justify-content:center;padding:18px}
 .modal-overlay.active{display:flex}
 .modal-content{width:min(100%,480px);background:#fff;border-radius:16px;padding:20px;box-shadow:0 18px 45px rgba(0,0,0,.22)}
@@ -698,23 +785,38 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 <?php endif; ?>
 </div>
 
-<div class="reviews-section">
+<div class="reviews-section" id="reviews">
 <h2 class="section-title">Reviews</h2>
-<?php if($reviewStatus === 'updated' || $reviewStatus === 'deleted'): ?>
+<?php if($reviewStatus === 'updated' || $reviewStatus === 'deleted' || $reviewStatus === 'reply_saved' || $reviewStatus === 'reply_deleted'): ?>
 <div class="review-status success">
-<?= $reviewStatus === 'updated' ? 'Your review has been updated.' : 'Your review has been deleted.' ?>
+<?php
+if($reviewStatus === 'updated'){
+    echo 'Your review has been updated.';
+}elseif($reviewStatus === 'deleted'){
+    echo 'Your review has been deleted.';
+}elseif($reviewStatus === 'reply_saved'){
+    echo 'Your reply has been saved.';
+}else{
+    echo 'Your reply has been deleted.';
+}
+?>
 </div>
-<?php elseif($reviewStatus === 'invalid'): ?>
+<?php elseif($reviewStatus === 'invalid' || $reviewStatus === 'reply_invalid'): ?>
 <div class="review-status error">Unable to save your review. Please complete the required fields and try again.</div>
 <?php endif; ?>
 <?php if($reviews->num_rows > 0): ?>
 <div class="review-list">
 <?php while($review = $reviews->fetch_assoc()): ?>
 <?php
-$isOwnReview = isset($_SESSION['user_id']) && (int) $_SESSION['user_id'] === (int) $review['user_id'];
+$isOwnReview = isset($_SESSION['user_id'], $_SESSION['account_type'])
+    && $_SESSION['account_type'] === 'consumer'
+    && (int) $_SESSION['user_id'] === (int) $review['user_id'];
+$canReplyAsOwner = isset($_SESSION['user_id'], $_SESSION['account_type'])
+    && $_SESSION['account_type'] === 'business_owner'
+    && (int) $_SESSION['user_id'] === (int) $business['b_id'];
 $reviewUsesRating = $review['experience_rating'] !== null && $review['experience_rating'] !== '';
 ?>
-<div class="review-card">
+<div class="review-card" id="review-<?= (int) $review['id'] ?>">
 <div class="review-top">
 <div>
 <div class="review-user">
@@ -742,6 +844,16 @@ if((int) $review['is_anonymous'] === 1){
 </div>
 
 <div class="review-comment"><?= htmlspecialchars($review['comment']) ?></div>
+
+<?php if(!empty($review['owner_reply'])): ?>
+<div class="owner-reply">
+<div class="owner-reply-label"><?= htmlspecialchars($business['business_name']) ?> replied</div>
+<div><?= nl2br(htmlspecialchars($review['owner_reply'])) ?></div>
+<?php if(!empty($review['owner_reply_at'])): ?>
+<div class="owner-reply-date"><?= date("F d, Y g:i A", strtotime($review['owner_reply_at'])) ?></div>
+<?php endif; ?>
+</div>
+<?php endif; ?>
 
 <?php
 $reviewImages = array_values(array_filter(array_map('trim', explode(',', (string) ($review['images'] ?? '')))));
@@ -776,6 +888,42 @@ if(count($reviewImages) > 0):
         <i class="fa fa-trash"></i> Delete
     </button>
 </form>
+</div>
+<?php endif; ?>
+
+<?php if($canReplyAsOwner && empty($review['owner_reply'])): ?>
+<form method="POST" class="owner-reply-form">
+    <input type="hidden" name="business_id" value="<?= (int) $business['b_id'] ?>">
+    <input type="hidden" name="review_id" value="<?= (int) $review['id'] ?>">
+    <textarea name="owner_reply" placeholder="Reply as <?= htmlspecialchars($business['business_name']) ?>" required><?= htmlspecialchars($review['owner_reply'] ?? '') ?></textarea>
+    <div class="review-actions">
+        <button type="submit" name="save_owner_reply" class="review-action-btn">
+            <i class="fa fa-reply"></i> Reply
+        </button>
+    </div>
+</form>
+<?php elseif($canReplyAsOwner): ?>
+<div class="owner-reply-actions">
+    <details class="owner-reply-editor">
+        <summary class="review-action-btn"><i class="fa fa-pen"></i> Edit Reply</summary>
+        <form method="POST" class="owner-reply-form">
+            <input type="hidden" name="business_id" value="<?= (int) $business['b_id'] ?>">
+            <input type="hidden" name="review_id" value="<?= (int) $review['id'] ?>">
+            <textarea name="owner_reply" placeholder="Reply as <?= htmlspecialchars($business['business_name']) ?>" required><?= htmlspecialchars($review['owner_reply'] ?? '') ?></textarea>
+            <div class="review-actions">
+                <button type="submit" name="save_owner_reply" class="review-action-btn">
+                    <i class="fa fa-reply"></i> Update Reply
+                </button>
+            </div>
+        </form>
+    </details>
+    <form method="POST" style="margin:0;" onsubmit="return confirm('Delete your reply?');">
+        <input type="hidden" name="business_id" value="<?= (int) $business['b_id'] ?>">
+        <input type="hidden" name="review_id" value="<?= (int) $review['id'] ?>">
+        <button type="submit" name="delete_owner_reply" class="review-action-btn danger">
+            <i class="fa fa-trash"></i> Delete Reply
+        </button>
+    </form>
 </div>
 <?php endif; ?>
 </div>

@@ -9,6 +9,38 @@ if($_SESSION['account_type'] !== "business_owner"){
 
 $owner_id = $_SESSION['user_id'];
 
+function ensureInventoryColumnExists(mysqli $conn, string $column, string $alterSql): void
+{
+    $check = $conn->prepare("
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'inventory'
+          AND COLUMN_NAME = ?
+        LIMIT 1
+    ");
+
+    if(!$check){
+        return;
+    }
+
+    $check->bind_param("s", $column);
+    $check->execute();
+    $exists = $check->get_result()->num_rows > 0;
+    $check->close();
+
+    if(!$exists){
+        $conn->query($alterSql);
+    }
+}
+
+ensureInventoryColumnExists(
+    $conn,
+    "last_added_at",
+    "ALTER TABLE inventory ADD COLUMN last_added_at DATETIME NULL AFTER created_at"
+);
+$conn->query("UPDATE inventory SET last_added_at = created_at WHERE last_added_at IS NULL");
+
 $edit_id = $_GET['edit_id'] ?? 0;
 $editProduct = null;
 
@@ -191,32 +223,60 @@ exit;
 /* ADD INVENTORY */
 if(isset($_POST['add_inventory'])){
 
-    $name = $_POST['name'];
+    $name = trim($_POST['name']);
     $desc = trim($_POST['description'] ?? '');
     $desc = $desc === '' ? null : $desc;
     $price = $_POST['price'];
-    $stock = $_POST['stock'];
+    $stock = (int) $_POST['stock'];
     $category = $_POST['category_id'];
     $expiration = $_POST['expiration_date'] ?: NULL;
 
     $image_name = null;
+    $uploaded_image = null;
 
     if(!empty($_FILES['image']['name'])){
 
         $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-        $image_name = time().rand().".".$ext;
+        $uploaded_image = time().rand().".".$ext;
 
         move_uploaded_file(
             $_FILES['image']['tmp_name'],
-            "uploads/product/".$image_name
+            "uploads/product/".$uploaded_image
         );
 
     }
 
+    $existing_stmt = $conn->prepare("
+        SELECT id, image
+        FROM inventory
+        WHERE owner_id=?
+          AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+    ");
+    $existing_stmt->bind_param("is", $owner_id, $name);
+    $existing_stmt->execute();
+    $existingProduct = $existing_stmt->get_result()->fetch_assoc();
+    $existing_stmt->close();
+
+    if($existingProduct){
+        if($uploaded_image){
+            $uploaded_path = "uploads/product/".$uploaded_image;
+            if(file_exists($uploaded_path)){
+                unlink($uploaded_path);
+            }
+        }
+
+        header("Location: inventory.php?tab=list&duplicate_product=".rawurlencode($name));
+        exit;
+    }
+
+    $image_name = $uploaded_image;
+
     $stmt = $conn->prepare("
         INSERT INTO inventory
-        (owner_id,name,description,price,stock,category_id,expiration_date,image)
-        VALUES (?,?,?,?,?,?,?,?)
+        (owner_id,name,description,price,stock,category_id,expiration_date,image,last_added_at)
+        VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
     ");
 
     $stmt->bind_param(
@@ -242,13 +302,13 @@ if(isset($_POST['add_inventory'])){
 /* UPDATE INVENTORY */
 if(isset($_POST['update_inventory'])){
 
-    $id = $_POST['id'];
-    $name = $_POST['name'];
+    $id = (int) $_POST['id'];
+    $name = trim($_POST['name']);
     $desc = trim($_POST['description'] ?? '');
     $desc = $desc === '' ? null : $desc;
     $price = $_POST['price'];
-    $stock = $_POST['stock'];
-    $category = $_POST['category_id'];
+    $stock = (int) $_POST['stock'];
+    $category = (int) $_POST['category_id'];
     $expiration = $_POST['expiration_date'] ?: NULL;
 
     $stmt = $conn->prepare("
@@ -278,15 +338,26 @@ if(isset($_POST['update_inventory'])){
 
     $stmt = $conn->prepare("
         UPDATE inventory
-        SET name=?, description=?, price=?, stock=?, category_id=?, expiration_date=?, image=?
+        SET name=?,
+            description=?,
+            price=?,
+            last_added_at=CASE
+                WHEN COALESCE(stock, 0) <> ? THEN CURRENT_TIMESTAMP
+                ELSE last_added_at
+            END,
+            stock=?,
+            category_id=?,
+            expiration_date=?,
+            image=?
         WHERE id=? AND owner_id=?
     ");
 
     $stmt->bind_param(
-        "ssdiissii",
+        "ssdiiissii",
         $name,
         $desc,
         $price,
+        $stock,
         $stock,
         $category,
         $expiration,
@@ -362,72 +433,6 @@ if(isset($_GET['delete_category'])){
     exit;
 }
 
-/* UPDATE INVENTORY */
-if(isset($_POST['update_inventory'])){
-
-    $id = $_POST['id'];
-    $name = $_POST['name'];
-    $desc = trim($_POST['description'] ?? '');
-    $desc = $desc === '' ? null : $desc;
-    $price = $_POST['price'];
-    $stock = $_POST['stock'];
-    $category = $_POST['category_id'];
-    $expiration = $_POST['expiration_date'] ?: NULL;
-
-    /* GET OLD IMAGE */
-    $stmt = $conn->prepare("
-        SELECT image FROM inventory
-        WHERE id=? AND owner_id=?
-    ");
-    $stmt->bind_param("ii",$id,$owner_id);
-    $stmt->execute();
-    $old = $stmt->get_result()->fetch_assoc();
-
-    $image_name = $old['image'];
-
-    /* IF NEW IMAGE */
-    if(!empty($_FILES['image']['name'])){
-
-        if($old['image']){
-            unlink("uploads/product/".$old['image']);
-        }
-
-        $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-        $image_name = time().rand().".".$ext;
-
-        move_uploaded_file(
-            $_FILES['image']['tmp_name'],
-            "uploads/product/".$image_name
-        );
-    }
-
-    /* UPDATE QUERY */
-    $stmt = $conn->prepare("
-        UPDATE inventory
-        SET name=?, description=?, price=?, stock=?, category_id=?, expiration_date=?, image=?, type=?
-        WHERE id=? AND owner_id=?
-    ");
-
-    $stmt->bind_param(
-        "ssdiisssii",
-        $name,
-        $desc,
-        $price,
-        $stock,
-        $category,
-        $expiration,
-        $image_name,
-        $type,
-        $id,
-        $owner_id
-    );
-
-    $stmt->execute();
-
-    header("Location: inventory.php?tab=list");
-    exit;
-}
-
 /* DELETE SERVICE */
 if(isset($_GET['delete_service'])){
 
@@ -469,7 +474,7 @@ FROM inventory i
 LEFT JOIN inventory_categories c
 ON i.category_id=c.id
 WHERE i.owner_id=?
-ORDER BY i.created_at DESC
+ORDER BY COALESCE(i.last_added_at, i.created_at) DESC, i.created_at DESC
 ");
 
 $inv_stmt->bind_param("i",$owner_id);
@@ -512,6 +517,7 @@ $expirations = $exp_stmt->get_result();
 
 
 $tab=$_GET['tab'] ?? "list";
+$duplicateProductName = trim($_GET['duplicate_product'] ?? '');
 ?>
 
 <!DOCTYPE html>
@@ -532,6 +538,32 @@ margin:10px 0 5px;
 font-size:13px;
 font-weight:600;
 color:#334155;
+}
+
+.duplicate-warning-modal{
+align-items:center !important;
+justify-content:center !important;
+padding:16px !important;
+}
+
+.duplicate-warning-modal .modal-content{
+width:100% !important;
+max-width:380px !important;
+border-radius:12px !important;
+padding:20px !important;
+padding-bottom:20px !important;
+box-sizing:border-box;
+}
+
+.duplicate-warning-modal .modal-content::after{
+display:none !important;
+}
+
+.duplicate-warning-modal button{
+width:auto !important;
+min-width:72px;
+padding:11px 18px !important;
+margin:0 !important;
 }
 </style>
 
@@ -632,7 +664,8 @@ while($cat=$categories->fetch_assoc()):
 <th>Category</th>
 <th>Price</th>
 <th>Stock</th>
-<th>Date Added</th>
+<th>First Added</th>
+<th>Latest Added</th>
 <th>Action</th>
 </tr>
 </thead>
@@ -659,6 +692,10 @@ while($cat=$categories->fetch_assoc()):
 
 <td>
 <?= date("M d, Y", strtotime($row['created_at'])) ?>
+</td>
+
+<td>
+<?= date("M d, Y", strtotime($row['last_added_at'] ?? $row['created_at'])) ?>
 </td>
 
 <td>
@@ -1050,6 +1087,28 @@ No expiration items found
 
 
 </div>
+
+
+
+<?php if($duplicateProductName !== ''): ?>
+<!-- DUPLICATE PRODUCT WARNING MODAL -->
+<div class="modal duplicate-warning-modal show" id="duplicateProductModal">
+
+<div class="modal-content">
+
+<h3 style="margin:0 0 10px;color:#b42318;font-size:18px;">Duplicate product name</h3>
+
+<p style="margin:0 0 16px;color:#334155;line-height:1.45;">
+"<?= htmlspecialchars($duplicateProductName) ?>" already exists in your inventory. Use Edit to update its stock instead of adding another product with the same name.
+</p>
+
+<button type="button" onclick="document.getElementById('duplicateProductModal').classList.remove('show')">
+OK
+</button>
+
+</div>
+</div>
+<?php endif; ?>
 
 
 

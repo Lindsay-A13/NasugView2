@@ -2,6 +2,7 @@
 require_once "config/session.php";
 require_once "config/db.php";
 require_once "config/orders_helper.php";
+require_once "config/item_reviews_helper.php";
 
 
 /* ================= DASHBOARD PROTECTION ================= */
@@ -19,7 +20,7 @@ ensureOrderPaymentSupport($conn);
 
 /* ================= FILTER ================= */
 
-$allowedPeriods = ['day', 'week', 'month', 'year'];
+$allowedPeriods = ['day', 'week', 'month', 'quarter', 'year'];
 $period = $_GET['period'] ?? 'day';
 if(!in_array($period, $allowedPeriods, true)){
     $period = 'day';
@@ -47,6 +48,31 @@ if($period === 'day'){
     $rangeStart->setDate((int)$dateObj->format('Y'), (int)$dateObj->format('m'), 1)->setTime(0, 0, 0);
     $rangeEnd = clone $rangeStart;
     $rangeEnd->modify('+1 month');
+}elseif($period === 'quarter'){
+    $selectedYearValue = (int)$dateObj->format('Y');
+    $selectedMonthValue = (int)$dateObj->format('n');
+
+    if($selectedMonthValue <= 3){
+        $quarterNumber = 1;
+        $quarterStartMonth = 1;
+        $quarterMonthCount = 3;
+    }elseif($selectedMonthValue <= 6){
+        $quarterNumber = 2;
+        $quarterStartMonth = 4;
+        $quarterMonthCount = 3;
+    }elseif($selectedMonthValue <= 9){
+        $quarterNumber = 3;
+        $quarterStartMonth = 7;
+        $quarterMonthCount = 3;
+    }else{
+        $quarterNumber = 4;
+        $quarterStartMonth = 10;
+        $quarterMonthCount = 2;
+    }
+
+    $rangeStart->setDate($selectedYearValue, $quarterStartMonth, 1)->setTime(0, 0, 0);
+    $rangeEnd = clone $rangeStart;
+    $rangeEnd->modify('+' . $quarterMonthCount . ' months');
 }else{
     $selectedYearValue = (int)$dateObj->format('Y');
     $rangeStart->setDate($selectedYearValue, 1, 1)->setTime(0, 0, 0);
@@ -66,6 +92,10 @@ if($period === 'day'){
     $rangeLabel = $rangeStart->format('M j') . ' - ' . $rangeLabelEnd->format('M j, Y');
 }elseif($period === 'month'){
     $rangeLabel = $rangeStart->format('F Y');
+}elseif($period === 'quarter'){
+    $rangeLabelEnd = clone $rangeEnd;
+    $rangeLabelEnd->modify('-1 day');
+    $rangeLabel = 'Q' . $quarterNumber . ' - ' . $rangeStart->format('F') . ' to ' . $rangeLabelEnd->format('F Y');
 }elseif($period === 'year'){
     $rangeLabel = $rangeStart->format('Y');
 }
@@ -198,6 +228,16 @@ function emptyTrendSeries(string $period, DateTime $start): array {
             $labels[] = $d->format("M j");
             $keys[] = $d->format("Y-m-d");
         }
+    }elseif($period === 'quarter'){
+        $end = clone $start;
+        $end->modify(((int)$start->format('n') === 10) ? '+2 months' : '+3 months');
+        $cursor = clone $start;
+
+        while($cursor < $end){
+            $labels[] = $cursor->format("M");
+            $keys[] = $cursor->format("m");
+            $cursor->modify("+1 month");
+        }
     }else{
         for($i=1;$i<=12;$i++){
             $labels[] = date("M", mktime(0, 0, 0, $i, 1));
@@ -226,6 +266,10 @@ if($period === 'day'){
     $ordersGroup = "DATE(created_at)";
     $visitsGroup = "DATE(visited_at)";
     $followersGroup = "DATE(created_at)";
+}elseif($period === 'quarter'){
+    $ordersGroup = "DATE_FORMAT(created_at, '%m')";
+    $visitsGroup = "DATE_FORMAT(visited_at, '%m')";
+    $followersGroup = "DATE_FORMAT(created_at, '%m')";
 }else{
     $ordersGroup = "DATE_FORMAT(created_at, '%m')";
     $visitsGroup = "DATE_FORMAT(visited_at, '%m')";
@@ -327,6 +371,305 @@ while($row=$resDaily->fetch_assoc()){
 }
 
 $topProducts=array_slice($dailyProducts, 0, 5);
+
+/* ================= PAYMENTS ================= */
+
+$paymentStats = [
+    'cash' => ['label' => 'Cash', 'orders' => 0, 'revenue' => 0.0],
+    'gcash' => ['label' => 'GCash', 'orders' => 0, 'revenue' => 0.0],
+    'other' => ['label' => 'Other', 'orders' => 0, 'revenue' => 0.0]
+];
+
+$paymentStmt = $conn->prepare("
+SELECT
+LOWER(COALESCE(NULLIF(payment_method, ''), 'other')) AS payment_method,
+COUNT(DISTINCT order_code) AS order_count,
+COALESCE(SUM(price * quantity), 0) AS revenue
+FROM orders
+WHERE business_id = ?
+AND status = 'Completed'
+AND created_at >= ?
+AND created_at < ?
+GROUP BY LOWER(COALESCE(NULLIF(payment_method, ''), 'other'))
+");
+
+$paymentStmt->bind_param("iss", $business_id, $rangeStartSql, $rangeEndSql);
+$paymentStmt->execute();
+$paymentRes = $paymentStmt->get_result();
+
+while($row = $paymentRes->fetch_assoc()){
+    $method = strtolower(trim((string)($row['payment_method'] ?? 'other')));
+    $key = 'other';
+
+    if(strpos($method, 'gcash') !== false){
+        $key = 'gcash';
+    }elseif(strpos($method, 'cash') !== false){
+        $key = 'cash';
+    }
+
+    $paymentStats[$key]['orders'] += (int)($row['order_count'] ?? 0);
+    $paymentStats[$key]['revenue'] += (float)($row['revenue'] ?? 0);
+}
+
+$totalPaymentOrders = array_sum(array_column($paymentStats, 'orders'));
+$totalPaymentRevenue = array_sum(array_column($paymentStats, 'revenue'));
+
+/* ================= NEGATIVE REVIEWS ================= */
+
+function dashboardTableExists(mysqli $conn, string $table): bool {
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+        LIMIT 1
+    ");
+
+    if(!$stmt){
+        return false;
+    }
+
+    $stmt->bind_param("s", $table);
+    $stmt->execute();
+    $exists = $stmt->get_result()->num_rows > 0;
+    $stmt->close();
+
+    return $exists;
+}
+
+function dashboardAddRatingStats(mysqli $conn, string $sql, string $types, array $params, array &$ratingCounts): void {
+    $stmt = $conn->prepare($sql);
+
+    if(!$stmt){
+        return;
+    }
+
+    $bindValues = [$types];
+    foreach($params as $key => $value){
+        $bindValues[] = &$params[$key];
+    }
+
+    call_user_func_array([$stmt, 'bind_param'], $bindValues);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    while($row = $result->fetch_assoc()){
+        $rating = (int)($row['rating'] ?? 0);
+
+        if($rating >= 1 && $rating <= 5){
+            $ratingCounts[$rating] += (int)($row['total'] ?? 0);
+        }
+    }
+
+    $stmt->close();
+}
+
+$ratingCounts = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
+
+dashboardAddRatingStats(
+    $conn,
+    "
+    SELECT experience_rating AS rating, COUNT(*) AS total
+    FROM reviews
+    WHERE business_id = ?
+    AND experience_rating IS NOT NULL
+    AND created_at >= ?
+    AND created_at < ?
+    GROUP BY experience_rating
+    ",
+    "iss",
+    [$business_id, $rangeStartSql, $rangeEndSql],
+    $ratingCounts
+);
+
+if(dashboardTableExists($conn, 'product_reviews')){
+    dashboardAddRatingStats(
+        $conn,
+        "
+        SELECT pr.rating, COUNT(*) AS total
+        FROM product_reviews pr
+        INNER JOIN inventory i ON i.id = pr.product_id
+        WHERE i.owner_id = ?
+        AND COALESCE(pr.updated_at, pr.created_at) >= ?
+        AND COALESCE(pr.updated_at, pr.created_at) < ?
+        GROUP BY pr.rating
+        ",
+        "iss",
+        [$business_id, $rangeStartSql, $rangeEndSql],
+        $ratingCounts
+    );
+}
+
+if(dashboardTableExists($conn, 'service_reviews')){
+    dashboardAddRatingStats(
+        $conn,
+        "
+        SELECT sr.rating, COUNT(*) AS total
+        FROM service_reviews sr
+        INNER JOIN services s ON s.id = sr.service_id
+        WHERE s.owner_id = ?
+        AND COALESCE(sr.updated_at, sr.created_at) >= ?
+        AND COALESCE(sr.updated_at, sr.created_at) < ?
+        GROUP BY sr.rating
+        ",
+        "iss",
+        [$business_id, $rangeStartSql, $rangeEndSql],
+        $ratingCounts
+    );
+}
+
+$totalRatings = array_sum($ratingCounts);
+$positiveRatings = $ratingCounts[4] + $ratingCounts[5];
+$neutralRatings = $ratingCounts[3];
+$negativeRatings = $ratingCounts[1] + $ratingCounts[2];
+$ratingSum = 0;
+
+foreach($ratingCounts as $rating => $count){
+    $ratingSum += $rating * $count;
+}
+
+$averageRating = $totalRatings > 0 ? $ratingSum / $totalRatings : 0.0;
+$positivePercent = $totalRatings > 0 ? ($positiveRatings / $totalRatings) * 100 : 0;
+$neutralPercent = $totalRatings > 0 ? ($neutralRatings / $totalRatings) * 100 : 0;
+$negativePercent = $totalRatings > 0 ? ($negativeRatings / $totalRatings) * 100 : 0;
+
+$negativeReviews = [];
+
+$businessNegativeStmt = $conn->prepare("
+SELECT
+'Business' AS review_type,
+b.business_name AS item_name,
+r.experience_rating AS rating,
+r.comment,
+r.created_at,
+r.is_anonymous,
+c.fname,
+c.lname,
+c.username,
+NULL AS owner_fname,
+NULL AS owner_lname,
+NULL AS owner_username
+FROM reviews r
+LEFT JOIN business_owner b ON b.b_id = r.business_id
+LEFT JOIN consumers c ON c.c_id = r.user_id
+WHERE r.business_id = ?
+AND r.experience_rating IS NOT NULL
+AND r.experience_rating <= 2
+AND r.created_at >= ?
+AND r.created_at < ?
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT 12
+");
+
+if($businessNegativeStmt){
+    $businessNegativeStmt->bind_param("iss", $business_id, $rangeStartSql, $rangeEndSql);
+    $businessNegativeStmt->execute();
+    $businessNegativeRes = $businessNegativeStmt->get_result();
+
+    while($row = $businessNegativeRes->fetch_assoc()){
+        $negativeReviews[] = $row;
+    }
+
+    $businessNegativeStmt->close();
+}
+
+if(dashboardTableExists($conn, 'product_reviews')){
+    ensureItemReviewAccountType($conn, "product_reviews", "product_id", "unique_product_review");
+
+    $productNegativeStmt = $conn->prepare("
+    SELECT
+    'Product' AS review_type,
+    i.name AS item_name,
+    pr.rating,
+    pr.comment,
+    COALESCE(pr.updated_at, pr.created_at) AS created_at,
+    pr.is_anonymous,
+    c.fname,
+    c.lname,
+    c.username,
+    bo.fname AS owner_fname,
+    bo.lname AS owner_lname,
+    bo.username AS owner_username
+    FROM product_reviews pr
+    INNER JOIN inventory i ON i.id = pr.product_id
+    LEFT JOIN consumers c
+        ON c.c_id = pr.user_id
+       AND COALESCE(pr.reviewer_account_type, 'consumer') = 'consumer'
+    LEFT JOIN business_owner bo
+        ON bo.b_id = pr.user_id
+       AND pr.reviewer_account_type = 'business_owner'
+    WHERE i.owner_id = ?
+    AND pr.rating <= 2
+    AND COALESCE(pr.updated_at, pr.created_at) >= ?
+    AND COALESCE(pr.updated_at, pr.created_at) < ?
+    ORDER BY COALESCE(pr.updated_at, pr.created_at) DESC, pr.id DESC
+    LIMIT 12
+    ");
+
+    if($productNegativeStmt){
+        $productNegativeStmt->bind_param("iss", $business_id, $rangeStartSql, $rangeEndSql);
+        $productNegativeStmt->execute();
+        $productNegativeRes = $productNegativeStmt->get_result();
+
+        while($row = $productNegativeRes->fetch_assoc()){
+            $negativeReviews[] = $row;
+        }
+
+        $productNegativeStmt->close();
+    }
+}
+
+if(dashboardTableExists($conn, 'service_reviews')){
+    ensureItemReviewAccountType($conn, "service_reviews", "service_id", "unique_service_review");
+
+    $serviceNegativeStmt = $conn->prepare("
+    SELECT
+    'Service' AS review_type,
+    s.name AS item_name,
+    sr.rating,
+    sr.comment,
+    COALESCE(sr.updated_at, sr.created_at) AS created_at,
+    sr.is_anonymous,
+    c.fname,
+    c.lname,
+    c.username,
+    bo.fname AS owner_fname,
+    bo.lname AS owner_lname,
+    bo.username AS owner_username
+    FROM service_reviews sr
+    INNER JOIN services s ON s.id = sr.service_id
+    LEFT JOIN consumers c
+        ON c.c_id = sr.user_id
+       AND COALESCE(sr.reviewer_account_type, 'consumer') = 'consumer'
+    LEFT JOIN business_owner bo
+        ON bo.b_id = sr.user_id
+       AND sr.reviewer_account_type = 'business_owner'
+    WHERE s.owner_id = ?
+    AND sr.rating <= 2
+    AND COALESCE(sr.updated_at, sr.created_at) >= ?
+    AND COALESCE(sr.updated_at, sr.created_at) < ?
+    ORDER BY COALESCE(sr.updated_at, sr.created_at) DESC, sr.id DESC
+    LIMIT 12
+    ");
+
+    if($serviceNegativeStmt){
+        $serviceNegativeStmt->bind_param("iss", $business_id, $rangeStartSql, $rangeEndSql);
+        $serviceNegativeStmt->execute();
+        $serviceNegativeRes = $serviceNegativeStmt->get_result();
+
+        while($row = $serviceNegativeRes->fetch_assoc()){
+            $negativeReviews[] = $row;
+        }
+
+        $serviceNegativeStmt->close();
+    }
+}
+
+usort($negativeReviews, function($a, $b){
+    return strtotime($b['created_at'] ?? '') <=> strtotime($a['created_at'] ?? '');
+});
+
+$negativeReviews = array_slice($negativeReviews, 0, 8);
 
 /* Compatibility values for the hidden legacy dashboard block below. */
 $selectedYear = (int)$dateObj->format('Y');
@@ -949,7 +1292,8 @@ color:#0f766e;
 }
 
 .filter-panel{
-min-width:320px;
+width:min(100%,520px);
+min-width:520px;
 display:grid;
 grid-template-columns:1fr;
 gap:10px;
@@ -963,7 +1307,7 @@ box-shadow:0 8px 20px rgba(0,0,0,0.05);
 .period-tabs{
 grid-column:1 / -1;
 display:grid;
-grid-template-columns:repeat(4,1fr);
+grid-template-columns:repeat(5,minmax(0,1fr));
 gap:6px;
 }
 
@@ -975,11 +1319,13 @@ font-family:inherit;
 }
 
 .period-tabs button{
-padding:9px 10px;
+min-height:40px;
+padding:9px 8px;
 border-radius:10px;
 background:#f1f5f9;
 color:#334155;
 font-weight:700;
+white-space:nowrap;
 }
 
 .period-tabs button.active{
@@ -1234,6 +1580,226 @@ align-items:center;
 height:240px;
 }
 
+.payment-review-grid{
+display:grid;
+grid-template-columns:.9fr 1.1fr;
+gap:16px;
+margin-bottom:18px;
+}
+
+.payment-list{
+display:flex;
+flex-direction:column;
+gap:12px;
+}
+
+.payment-row{
+display:grid;
+grid-template-columns:48px minmax(0,1fr) auto;
+align-items:center;
+gap:12px;
+padding:12px;
+border:1px solid #e5e7eb;
+border-radius:14px;
+background:#f8fafc;
+}
+
+.payment-icon{
+width:48px;
+height:48px;
+border-radius:12px;
+display:flex;
+align-items:center;
+justify-content:center;
+font-weight:900;
+color:#fff;
+background:#001a47;
+}
+
+.payment-icon.gcash{
+background:#0f766e;
+}
+
+.payment-icon.other{
+background:#475569;
+}
+
+.payment-name,
+.review-source{
+font-weight:800;
+color:#001a47;
+overflow-wrap:anywhere;
+}
+
+.payment-meta,
+.review-meta-line{
+margin-top:3px;
+font-size:12px;
+font-weight:700;
+color:#64748b;
+}
+
+.payment-value{
+text-align:right;
+font-weight:900;
+color:#001a47;
+white-space:nowrap;
+}
+
+.payment-share{
+margin-top:3px;
+font-size:12px;
+font-weight:800;
+color:#0f766e;
+}
+
+.review-stats-grid{
+display:grid;
+grid-template-columns:repeat(4,minmax(0,1fr));
+gap:10px;
+margin-bottom:12px;
+}
+
+.review-stat{
+padding:12px;
+border-radius:14px;
+background:#f8fafc;
+border:1px solid #e5e7eb;
+}
+
+.review-stat.positive{
+background:#ecfdf3;
+border-color:#bbf7d0;
+}
+
+.review-stat.negative{
+background:#fef2f2;
+border-color:#fecaca;
+}
+
+.review-stat.neutral{
+background:#f8fafc;
+border-color:#cbd5e1;
+}
+
+.review-stat strong,
+.review-stat span,
+.review-stat small{
+display:block;
+}
+
+.review-stat strong{
+font-size:22px;
+color:#001a47;
+}
+
+.review-stat.positive strong,
+.review-stat.positive small{
+color:#15803d;
+}
+
+.review-stat.negative strong,
+.review-stat.negative small{
+color:#b91c1c;
+}
+
+.review-stat span{
+font-size:12px;
+font-weight:800;
+color:#475569;
+}
+
+.review-stat small{
+margin-top:3px;
+font-size:12px;
+font-weight:800;
+color:#64748b;
+}
+
+.rating-breakdown{
+display:flex;
+flex-direction:column;
+gap:8px;
+margin:12px 0;
+}
+
+.rating-breakdown-row{
+display:grid;
+grid-template-columns:56px minmax(0,1fr) 86px;
+align-items:center;
+gap:10px;
+font-size:12px;
+font-weight:800;
+color:#475569;
+}
+
+.rating-bar{
+height:9px;
+border-radius:999px;
+background:#e5e7eb;
+overflow:hidden;
+}
+
+.rating-bar span{
+display:block;
+height:100%;
+border-radius:999px;
+background:#0f766e;
+}
+
+.rating-breakdown-row.low .rating-bar span{
+background:#b91c1c;
+}
+
+.rating-breakdown-row.mid .rating-bar span{
+background:#64748b;
+}
+
+.review-feed{
+display:flex;
+flex-direction:column;
+gap:10px;
+max-height:430px;
+overflow:auto;
+padding-right:4px;
+}
+
+.negative-review{
+padding:12px;
+border:1px solid #e5e7eb;
+border-radius:14px;
+background:#fff;
+}
+
+.negative-review-top{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:10px;
+margin-bottom:8px;
+}
+
+.review-rating-badge{
+flex:0 0 auto;
+display:inline-flex;
+align-items:center;
+gap:5px;
+padding:5px 8px;
+border-radius:999px;
+background:#fee2e2;
+color:#b91c1c;
+font-size:12px;
+font-weight:900;
+}
+
+.review-comment-preview{
+font-size:13px;
+line-height:1.5;
+color:#334155;
+white-space:pre-wrap;
+overflow-wrap:anywhere;
+}
+
 .theme-dark .filter-panel,
 .theme-dark .score-card,
 .theme-dark .card{
@@ -1245,13 +1811,19 @@ border-color:#2d2d2d;
 .theme-dark .score-card strong,
 .theme-dark .panel-title span,
 .theme-dark .money,
-.theme-dark .buyer-breakdown strong{
+.theme-dark .buyer-breakdown strong,
+.theme-dark .payment-name,
+.theme-dark .payment-value,
+.theme-dark .review-source{
 color:#ededed !important;
 }
 
 .theme-dark .dashboard-hero p,
 .theme-dark .score-card span,
-.theme-dark .panel-title small{
+.theme-dark .panel-title small,
+.theme-dark .payment-meta,
+.theme-dark .review-meta-line,
+.theme-dark .review-comment-preview{
 color:#b8b8b8;
 }
 
@@ -1272,14 +1844,36 @@ color:#cbd5e1 !important;
 
 .theme-dark .buyer-breakdown div,
 .theme-dark .period-tabs button,
-.theme-dark .insight-note{
+.theme-dark .insight-note,
+.theme-dark .review-stat,
+.theme-dark .payment-row,
+.theme-dark .negative-review{
 background:#1a1a1a;
+}
+
+.theme-dark .review-stat strong{
+color:#ededed;
+}
+
+.theme-dark .review-stat.positive strong,
+.theme-dark .review-stat.positive small{
+color:#4ade80;
+}
+
+.theme-dark .review-stat.negative strong,
+.theme-dark .review-stat.negative small{
+color:#f87171;
+}
+
+.theme-dark .rating-bar{
+background:#2d2d2d;
 }
 
 @media (max-width:900px){
 .dashboard-hero,
 .analytics-grid,
 .content-grid,
+.payment-review-grid,
 .gender-card{
 grid-template-columns:1fr;
 display:grid;
@@ -1287,6 +1881,7 @@ display:grid;
 
 .filter-panel{
 min-width:0;
+width:100%;
 }
 
 .score-grid{
@@ -1299,9 +1894,30 @@ grid-template-columns:repeat(2,minmax(0,1fr));
 font-size:24px;
 }
 
+.review-stats-grid{
+grid-template-columns:repeat(2,minmax(0,1fr));
+}
+
+.rating-breakdown-row{
+grid-template-columns:48px minmax(0,1fr);
+}
+
+.rating-breakdown-row > span:last-child{
+grid-column:2;
+}
+
 .filter-panel,
 .score-grid{
 grid-template-columns:1fr;
+}
+
+.period-tabs{
+gap:5px;
+}
+
+.period-tabs button{
+font-size:13px;
+padding:8px 4px;
 }
 
 .date-control-row{
@@ -1348,7 +1964,7 @@ height:220px;
 
     <form method="GET" class="filter-panel" id="dashboardFilter">
         <div class="period-tabs">
-            <?php foreach(['day'=>'Day','week'=>'Week','month'=>'Month','year'=>'Year'] as $value=>$label): ?>
+            <?php foreach(['day'=>'Day','week'=>'Week','month'=>'Month','quarter'=>'Quarter','year'=>'Year'] as $value=>$label): ?>
             <button type="submit" name="period" value="<?= $value ?>" onclick="this.form.querySelector('input[type=hidden][name=period]').value=this.value" class="<?= $period === $value ? 'active' : '' ?>">
                 <?= $label ?>
             </button>
@@ -1435,6 +2051,135 @@ height:220px;
         <div class="chart-container tall">
             <canvas id="barChart"></canvas>
         </div>
+    </div>
+</div>
+
+<div class="payment-review-grid">
+    <div class="card">
+        <div class="panel-title">
+            <div>
+                <span>Payment Statistics</span>
+                <small>Cash and GCash sales for <?= htmlspecialchars($rangeLabel) ?></small>
+            </div>
+        </div>
+
+        <div class="payment-list">
+            <?php foreach($paymentStats as $key => $stat): ?>
+            <?php
+            $paymentShare = $totalPaymentRevenue > 0 ? (((float)$stat['revenue'] / $totalPaymentRevenue) * 100) : 0;
+            $iconText = $key === 'gcash' ? 'GC' : ($key === 'cash' ? 'CA' : 'OT');
+            ?>
+            <div class="payment-row">
+                <div class="payment-icon <?= htmlspecialchars($key) ?>"><?= htmlspecialchars($iconText) ?></div>
+                <div>
+                    <div class="payment-name"><?= htmlspecialchars($stat['label']) ?></div>
+                    <div class="payment-meta"><?= number_format((int)$stat['orders']) ?> completed order<?= (int)$stat['orders'] === 1 ? '' : 's' ?></div>
+                </div>
+                <div>
+                    <div class="payment-value">&#8369;<?= number_format((float)$stat['revenue'], 2) ?></div>
+                    <div class="payment-share"><?= number_format($paymentShare, 1) ?>%</div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <div class="insight-note">
+            <?php if($totalPaymentOrders <= 0): ?>
+            No completed payments are available for this selected period.
+            <?php elseif($paymentStats['gcash']['revenue'] > $paymentStats['cash']['revenue']): ?>
+            GCash is the stronger payment method for this selected period.
+            <?php elseif($paymentStats['cash']['revenue'] > $paymentStats['gcash']['revenue']): ?>
+            Cash is the stronger payment method for this selected period.
+            <?php else: ?>
+            Cash and GCash sales are even for this selected period.
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="panel-title">
+            <div>
+                <span>Ratings & Reviews Statistics</span>
+                <small>Positive, neutral, and negative ratings for <?= htmlspecialchars($rangeLabel) ?></small>
+            </div>
+        </div>
+
+        <div class="review-stats-grid">
+            <div class="review-stat">
+                <strong><?= number_format($totalRatings) ?></strong>
+                <span>Total Ratings</span>
+                <small><?= $totalRatings > 0 ? number_format($averageRating, 1) . ' avg' : '0.0 avg' ?></small>
+            </div>
+            <div class="review-stat positive">
+                <strong><?= number_format($positiveRatings) ?></strong>
+                <span>Positive</span>
+                <small><?= number_format($positivePercent, 1) ?>%</small>
+            </div>
+            <div class="review-stat neutral">
+                <strong><?= number_format($neutralRatings) ?></strong>
+                <span>Neutral</span>
+                <small><?= number_format($neutralPercent, 1) ?>%</small>
+            </div>
+            <div class="review-stat negative">
+                <strong><?= number_format($negativeRatings) ?></strong>
+                <span>Negative</span>
+                <small><?= number_format($negativePercent, 1) ?>%</small>
+            </div>
+        </div>
+
+        <div class="rating-breakdown" aria-label="Rating breakdown">
+            <?php for($rating = 5; $rating >= 1; $rating--): ?>
+            <?php
+            $ratingCount = $ratingCounts[$rating] ?? 0;
+            $ratingPercent = $totalRatings > 0 ? ($ratingCount / $totalRatings) * 100 : 0;
+            $ratingTone = $rating >= 4 ? 'high' : ($rating === 3 ? 'mid' : 'low');
+            ?>
+            <div class="rating-breakdown-row <?= htmlspecialchars($ratingTone) ?>">
+                <span><?= $rating ?> star</span>
+                <div class="rating-bar"><span style="width:<?= number_format($ratingPercent, 2, '.', '') ?>%"></span></div>
+                <span><?= number_format($ratingCount) ?> (<?= number_format($ratingPercent, 1) ?>%)</span>
+            </div>
+            <?php endfor; ?>
+        </div>
+
+        <?php if(empty($negativeReviews)): ?>
+        <div class="empty-cell">No negative ratings or reviews for this filter.</div>
+        <?php else: ?>
+        <div class="panel-title" style="margin-top:14px;">
+            <div>
+                <span>Recent Negative Reviews</span>
+                <small>1 to 2 star comments that may need attention</small>
+            </div>
+        </div>
+        <div class="review-feed">
+            <?php foreach($negativeReviews as $review): ?>
+            <?php
+            $consumerName = trim(($review['fname'] ?? '') . ' ' . ($review['lname'] ?? ''));
+            $ownerName = trim(($review['owner_fname'] ?? '') . ' ' . ($review['owner_lname'] ?? ''));
+            $reviewerName = $consumerName !== ''
+                ? $consumerName
+                : ($ownerName !== '' ? $ownerName : ($review['username'] ?? ($review['owner_username'] ?? 'Customer')));
+            if((int)($review['is_anonymous'] ?? 0) === 1){
+                $reviewerName = 'Anonymous customer';
+            }
+            $reviewDate = !empty($review['created_at']) ? date("M j, Y", strtotime($review['created_at'])) : '';
+            ?>
+            <div class="negative-review">
+                <div class="negative-review-top">
+                    <div>
+                        <div class="review-source"><?= htmlspecialchars($review['review_type'] . ': ' . ($review['item_name'] ?? 'Untitled')) ?></div>
+                        <div class="review-meta-line"><?= htmlspecialchars($reviewerName) ?><?= $reviewDate !== '' ? ' &middot; ' . htmlspecialchars($reviewDate) : '' ?></div>
+                    </div>
+                    <div class="review-rating-badge">
+                        <span><?= number_format((float)($review['rating'] ?? 0), 0) ?></span>
+                        <span>star<?= (int)($review['rating'] ?? 0) === 1 ? '' : 's' ?></span>
+                    </div>
+                </div>
+                <div class="review-comment-preview"><?= nl2br(htmlspecialchars((string)($review['comment'] ?? ''))) ?></div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -1844,6 +2589,7 @@ const axisLabelByPeriod = {
     day: "Hours",
     week: "Dates",
     month: "Dates",
+    quarter: "Months",
     year: "Months"
 };
 

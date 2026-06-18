@@ -163,6 +163,58 @@ if(isset($_POST['refund'])){
     exit;
 }
 
+if(isset($_POST['cancel_order'])){
+    $code = trim($_POST['order_code'] ?? '');
+    $reason = trim($_POST['cancel_reason'] ?? '');
+
+    if($code === '' || $reason === ''){
+        header("Location: order_list.php?error=" . urlencode("Cancellation reason is required."));
+        exit;
+    }
+
+    $reason = substr($reason, 0, 1000);
+
+    $consumerStmt = $conn->prepare("
+        SELECT consumer_id, buyer_account_type
+        FROM orders
+        WHERE order_code = ? AND business_id = ?
+        LIMIT 1
+    ");
+    $consumerStmt->bind_param("si", $code, $owner_id);
+    $consumerStmt->execute();
+    $consumerRow = $consumerStmt->get_result()->fetch_assoc();
+    $consumerStmt->close();
+
+    $cancel = $conn->prepare("
+        UPDATE orders
+        SET status = 'Cancelled',
+            cancel_reason = ?,
+            cancelled_by = 'business_owner',
+            cancelled_at = NOW()
+        WHERE order_code = ?
+          AND business_id = ?
+          AND status IN ('Pending', 'For Payment')
+    ");
+    $cancel->bind_param("ssi", $reason, $code, $owner_id);
+    $cancel->execute();
+    $updatedRows = $cancel->affected_rows;
+    $cancel->close();
+
+    if($updatedRows > 0 && !empty($consumerRow['consumer_id'])){
+        insertNotification(
+            $conn,
+            (int) $consumerRow['consumer_id'],
+            (string) ($consumerRow['buyer_account_type'] ?: "consumer"),
+            "Order Cancelled",
+            "Your order " . $code . " was cancelled. Reason: " . $reason
+        );
+    }
+
+    $redirectMessage = $updatedRows > 0 ? "Order cancelled successfully." : "Order cannot be cancelled from its current status.";
+    header("Location: order_list.php?tab=Cancelled&" . ($updatedRows > 0 ? "success=" : "error=") . urlencode($redirectMessage));
+    exit;
+}
+
 $allowedTabs = ['All','Pending','For Payment','Completed','Cancelled','Refund'];
 $currentTab = $_GET['tab'] ?? 'All';
 $search = trim($_GET['search'] ?? '');
@@ -277,6 +329,7 @@ h2{margin:0 0 15px;color:#001a47}
 .btn-confirm,.btn-receipt{background:#001a47;color:#fff}
 .btn-pay{background:#198754;color:#fff}
 .btn-refund{background:#7c3aed;color:#fff}
+.btn-cancel{background:#dc3545;color:#fff}
 .receipt-modal{display:none;position:fixed;inset:0;background:rgba(255,255,255,.6);justify-content:center;align-items:center;z-index:9999}
 .receipt-content{background:#f2f2f2;width:95%;max-width:480px;border-radius:25px;padding:25px;position:relative;box-shadow:0 15px 35px rgba(0,0,0,.25);font-family:Arial,sans-serif}
 .close-receipt{position:absolute;right:18px;top:12px;font-size:18px;cursor:pointer;color:#777}
@@ -298,11 +351,13 @@ h2{margin:0 0 15px;color:#001a47}
 .payment-modal-card h3{margin:0 0 16px;color:#001a47}
 .payment-form-group{margin-bottom:14px}
 .payment-form-group label{display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:#334155}
-.payment-form-group select,.payment-form-group input{width:100%;padding:11px 12px;border:1px solid #d0d7de;border-radius:10px;font-size:14px}
+.payment-form-group select,.payment-form-group input,.payment-form-group textarea{width:100%;padding:11px 12px;border:1px solid #d0d7de;border-radius:10px;font-size:14px;font-family:inherit}
+.payment-form-group textarea{min-height:110px;resize:vertical}
 .payment-summary{margin:14px 0;padding:12px;border-radius:12px;background:#f4f6f9;font-size:14px;color:#0f172a}
 .payment-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
 .btn-secondary{background:#e9ecef;color:#001a47}
 .payment-hidden{display:none}
+.cancel-note{margin-top:10px;padding:10px 12px;border-radius:10px;background:#fff1f2;color:#9f1239;font-size:13px}
 @media(max-width:768px){
     .order-header{flex-direction:column;align-items:flex-start}
     .order-total{text-align:left}
@@ -406,6 +461,12 @@ h2{margin:0 0 15px;color:#001a47}
         <?php endif; ?>
     </div>
 
+    <?php if($status === "Cancelled" && !empty($items[0]['cancel_reason'])): ?>
+    <div class="cancel-note">
+        <strong>Cancellation Reason:</strong> <?= nl2br(htmlspecialchars($items[0]['cancel_reason'])) ?>
+    </div>
+    <?php endif; ?>
+
     <div class="actions">
         <?php if($status === "For Payment" || $status === "Completed" || $status === "Refund"): ?>
         <button type="button" class="btn btn-receipt" onclick='openReceiptModal(<?= json_encode($code) ?>)'>
@@ -423,6 +484,12 @@ h2{margin:0 0 15px;color:#001a47}
         <?php if($status === "For Payment"): ?>
         <button type="button" class="btn btn-pay" onclick='openPaymentModal(<?= json_encode($code) ?>, <?= json_encode((float) $total) ?>)'>
             Record Payment
+        </button>
+        <?php endif; ?>
+
+        <?php if($status === "Pending" || $status === "For Payment"): ?>
+        <button type="button" class="btn btn-cancel" onclick='openCancelModal(<?= json_encode($code) ?>)'>
+            Cancel Order
         </button>
         <?php endif; ?>
 
@@ -479,6 +546,31 @@ h2{margin:0 0 15px;color:#001a47}
             <div class="payment-actions">
                 <button type="button" class="btn btn-secondary" onclick="closePaymentModal()">Cancel</button>
                 <button type="submit" class="btn btn-pay">Save Payment</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="cancelModal" class="receipt-modal">
+    <div class="payment-modal-card">
+        <span class="close-receipt" onclick="closeCancelModal()">&times;</span>
+        <h3>Cancel Order</h3>
+        <form method="POST">
+            <input type="hidden" name="cancel_order" value="1">
+            <input type="hidden" name="order_code" id="cancelOrderCode">
+
+            <div class="payment-summary">
+                <div><strong>Order Code:</strong> <span id="cancelOrderText"></span></div>
+            </div>
+
+            <div class="payment-form-group">
+                <label for="cancelReason">Cancellation Reason</label>
+                <textarea name="cancel_reason" id="cancelReason" maxlength="1000" required placeholder="Explain why this order is being cancelled."></textarea>
+            </div>
+
+            <div class="payment-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeCancelModal()">Back</button>
+                <button type="submit" class="btn btn-cancel">Cancel Order</button>
             </div>
         </form>
     </div>
@@ -570,6 +662,17 @@ function openPaymentModal(orderCode, total){
 
 function closePaymentModal(){
     document.getElementById("paymentModal").style.display = "none";
+}
+
+function openCancelModal(orderCode){
+    document.getElementById("cancelOrderCode").value = orderCode;
+    document.getElementById("cancelOrderText").textContent = orderCode;
+    document.getElementById("cancelReason").value = "";
+    document.getElementById("cancelModal").style.display = "flex";
+}
+
+function closeCancelModal(){
+    document.getElementById("cancelModal").style.display = "none";
 }
 
 function togglePaymentFields(){
