@@ -38,7 +38,7 @@ if (isset($_GET['open'])) {
                     $update->close();
                 }
 
-                $targetLink = notificationLink((string) ($notification['title'] ?? ''), (string) $account_type);
+                $targetLink = notificationLink((string) ($notification['title'] ?? ''), (string) $account_type, (int) $user_id);
             }
         }
     }

@@ -477,14 +477,16 @@ function unreadNotificationCount(mysqli $conn, int $userId, string $accountType)
     return (int) ($row['total'] ?? 0);
 }
 
-function notificationLink(string $title, string $accountType): string
+function notificationLink(string $title, string $accountType, int $userId = 0): string
 {
     if ($title === "New Event" || $title === "Upcoming Event" || $title === "Event Tomorrow") {
         return "calendar.php";
     }
 
     if ($title === "New Review") {
-        return "creviews.php";
+        return $accountType === "business_owner" && $userId > 0
+            ? "businessdetails.php?id=" . $userId . "#reviews"
+            : "notifications.php";
     }
 
     if ($title === "New Order") {

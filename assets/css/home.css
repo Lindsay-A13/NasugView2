@@ -1213,6 +1213,13 @@ font-size:11px;
 text-decoration:underline;
 }
 
+.review-business.is-visible{
+display:flex !important;
+visibility:visible !important;
+opacity:1 !important;
+min-height:17px;
+}
+
 .review-date{
 font-size:12px;
 font-weight:700;
@@ -1290,12 +1297,23 @@ padding:18px 12px;
 color:#001a47;
 }
 
+.comment-time{
+font-size:11px;
+font-weight:700;
+color:#7a8798;
+margin-top:4px;
+}
+
 .comment-box{
 margin-top:12px;
+display:flex;
+align-items:center;
+gap:8px;
 }
 
 .comment-box input{
-width:100%;
+flex:1;
+min-width:0;
 padding:11px 14px;
 border-radius:999px;
 border:1px solid #d7e6fb;
@@ -1309,6 +1327,28 @@ box-shadow:0 8px 18px rgba(15,76,129,0.06);
 outline:none;
 border-color:#60a5fa;
 box-shadow:0 0 0 3px rgba(96,165,250,0.18);
+}
+
+.comment-box button{
+width:40px;
+height:40px;
+border:none;
+border-radius:50%;
+display:flex;
+align-items:center;
+justify-content:center;
+background:#0057d9;
+color:#fff;
+font-size:14px;
+cursor:pointer;
+box-shadow:0 8px 18px rgba(0,87,217,0.22);
+transition:background .18s ease, transform .18s ease;
+flex:0 0 auto;
+}
+
+.comment-box button:hover{
+background:#003f9e;
+transform:translateY(-1px);
 }
 .comment-modal{
 display:none;
@@ -1566,7 +1606,8 @@ color:#f8fafc;
 .theme-dark .location,
 .theme-dark .location span,
 .theme-dark .review-count,
-.theme-dark .review-date{
+.theme-dark .review-date,
+.theme-dark .comment-time{
 color:#a3a3a3;
 }
 

@@ -8,6 +8,7 @@ function ensureOrderPaymentSupport(mysqli $conn): void
     ensureServiceBookingSupport($conn);
     ensureOrderTypeSupportsService($conn);
     ensureOrderPaymentColumns($conn);
+    ensureOrderCancellationColumns($conn);
     normalizeLegacyOrderStatuses($conn);
     backfillOrderBuyerAccountTypes($conn);
 }
@@ -295,6 +296,19 @@ function ensureOrderPaymentColumns(mysqli $conn): void
         if (!$exists) {
             $conn->query($sql);
         }
+    }
+}
+
+function ensureOrderCancellationColumns(mysqli $conn): void
+{
+    $requiredColumns = [
+        "cancel_reason" => "ALTER TABLE orders ADD COLUMN cancel_reason TEXT NULL AFTER paid_at",
+        "cancelled_by" => "ALTER TABLE orders ADD COLUMN cancelled_by VARCHAR(20) NULL AFTER cancel_reason",
+        "cancelled_at" => "ALTER TABLE orders ADD COLUMN cancelled_at DATETIME NULL AFTER cancelled_by"
+    ];
+
+    foreach ($requiredColumns as $column => $sql) {
+        ensureColumnExists($conn, "orders", $column, $sql);
     }
 }
 

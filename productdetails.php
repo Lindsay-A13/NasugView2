@@ -455,7 +455,7 @@ Choose your quantity and add this item directly to your cart.
 </div>
 </div>
 
-<div class="reviews-section">
+<div class="reviews-section" id="reviews">
 <div class="reviews-header">
 <div class="review-summary">
 <div class="review-score"><?= $totalReviews > 0 ? number_format($avgRating, 1) : '0.0' ?></div>
@@ -784,7 +784,7 @@ document.querySelectorAll("#stars i").forEach(star => {
   });
 });
 
-<?php if($reviewStatus === 'invalid' || $reviewStatus === 'invalid_user' || $reviewStatus === 'failed'): ?>
+<?php if($reviewStatus === 'invalid' || $reviewStatus === 'invalid_user' || $reviewStatus === 'failed' || ($_GET['open_review'] ?? '') === '1'): ?>
 openModal();
 <?php endif; ?>
 </script>

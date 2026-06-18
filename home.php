@@ -35,12 +35,27 @@ function ensureBusinessLocationColumns(mysqli $conn): void {
 
 ensureBusinessLocationColumns($conn);
 
+function formatNewsfeedDate(?string $dateValue, string $format = "F d, Y g:i A"): string {
+    if(empty($dateValue)){
+        return "";
+    }
+
+    $timestamp = strtotime($dateValue);
+
+    if($timestamp === false){
+        return "";
+    }
+
+    return date($format, $timestamp);
+}
+
 function renderReviewComments(mysqli $conn, int $reviewId): string {
 ob_start();
 
 $stmt = $conn->prepare("
 SELECT 
 rr.comment,
+rr.created_at,
 rr.account_type,
 c.fname,
 c.lname,
@@ -80,6 +95,7 @@ echo htmlspecialchars($c['business_name'] ?? "");
 ?>
 </strong>
 <?php echo htmlspecialchars($c['comment']); ?>
+<div class="comment-time"><?php echo htmlspecialchars(formatNewsfeedDate($c['created_at'], "M d, Y g:i A")); ?></div>
 </div>
 <?php
 }
@@ -428,12 +444,7 @@ SELECT
     c.profile_picture,
 
     r.business_id,
-    (
-        SELECT bo.business_name
-        FROM business_owner bo
-        WHERE bo.b_id = r.business_id
-        LIMIT 1
-    ) AS review_business_name,
+    COALESCE(NULLIF(b.business_name, ''), CONCAT('Business ', r.business_id)) AS review_business_name,
 
     (SELECT COUNT(*) 
      FROM review_reacts 
@@ -459,6 +470,9 @@ FROM reviews r
 LEFT JOIN consumers c 
 ON r.user_id = c.c_id
 
+LEFT JOIN business_owner b
+ON r.business_id = b.b_id
+
 ORDER BY RAND()
 ";
 
@@ -472,23 +486,6 @@ $reviewStmt->bind_param("is",$current_user_id,$current_account_type);
 
 $reviewStmt->execute();
 $reviews = $reviewStmt->get_result();
-
-$businessNameMap = [];
-$businessNamesStmt = $conn->prepare("
-    SELECT b_id, business_name
-    FROM business_owner
-");
-
-if($businessNamesStmt){
-    $businessNamesStmt->execute();
-    $businessNames = $businessNamesStmt->get_result();
-
-    while($businessNameRow = $businessNames->fetch_assoc()){
-        $businessNameMap[(int) $businessNameRow['b_id']] = trim((string) ($businessNameRow['business_name'] ?? ''));
-    }
-
-    $businessNamesStmt->close();
-}
 
 ?>
 
@@ -504,7 +501,7 @@ if($businessNamesStmt){
 
 
 <?php require_once "config/theme.php"; render_theme_head(); ?>
-<link rel="stylesheet" href="assets/css/home.css?v=20260601-business-name-fix">
+<link rel="stylesheet" href="assets/css/home.css?v=20260618-feed-time-business-fix">
 </head>
 
 <body>
@@ -790,24 +787,24 @@ echo htmlspecialchars($review['fname']." ".$review['lname']);
 
 <?php
 $reviewBusinessId = (int) ($review['business_id'] ?? 0);
-$reviewBusinessName = $businessNameMap[$reviewBusinessId] ?? trim((string) ($review['review_business_name'] ?? ''));
+$reviewBusinessName = trim((string) ($review['review_business_name'] ?? ''));
 
 if($reviewBusinessName === ""){
-    $reviewBusinessName = $reviewBusinessId > 0 ? "Business ".$reviewBusinessId : "View business";
+    $reviewBusinessName = $reviewBusinessId > 0 ? "Business " . $reviewBusinessId : "Business not found";
 }
 ?>
 <?php if($reviewBusinessId > 0): ?>
-<a href="businessdetails.php?id=<?php echo $reviewBusinessId; ?>" class="review-business" title="<?php echo htmlspecialchars($reviewBusinessName); ?>">
+<a href="businessdetails.php?id=<?php echo $reviewBusinessId; ?>" class="review-business is-visible" title="<?php echo htmlspecialchars($reviewBusinessName); ?>">
 <?php echo htmlspecialchars($reviewBusinessName); ?>
 </a>
 <?php else: ?>
-<div class="review-business">
+<div class="review-business is-visible">
 <?php echo htmlspecialchars($reviewBusinessName); ?>
 </div>
 <?php endif; ?>
 
 <div class="review-date">
-<?php echo date("F d, Y", strtotime($review['created_at'])); ?>
+<?php echo htmlspecialchars(formatNewsfeedDate($review['created_at'])); ?>
 </div>
 
 </div>
@@ -841,11 +838,14 @@ data-review="<?php echo $review['id']; ?>"
 
 </div>
 
+<div class="comment-preview" data-review="<?php echo $review['id']; ?>">
+
 <?php
 
 $commentStmt = $conn->prepare("
 SELECT 
 rr.comment,
+rr.created_at,
 rr.account_type,
 c.fname,
 c.lname,
@@ -879,7 +879,7 @@ if($c['account_type'] == "consumer"){
 echo htmlspecialchars($c['fname']." ".$c['lname']);
 }else{
 echo htmlspecialchars($c['business_name'])." ";
-echo "<span style='color:#ff9800;font-size:12px;'>✔ Business</span>";
+echo "<span style='color:#ff9800;font-size:12px;'>&#10004; Business</span>";
 }
 
 ?>
@@ -887,10 +887,13 @@ echo "<span style='color:#ff9800;font-size:12px;'>✔ Business</span>";
 </strong>
 
 <?php echo htmlspecialchars($c['comment']); ?>
+<div class="comment-time"><?php echo htmlspecialchars(formatNewsfeedDate($c['created_at'], "M d, Y g:i A")); ?></div>
 
 </div>
 
 <?php endwhile; ?>
+
+</div>
 
 <form method="POST" class="comment-box">
 
@@ -898,7 +901,9 @@ echo "<span style='color:#ff9800;font-size:12px;'>✔ Business</span>";
 
 <input type="text" name="comment" placeholder="Write a comment..." required>
 
-<button type="submit" name="submit_comment" style="display:none;"></button>
+<button type="submit" name="submit_comment" aria-label="Send comment">
+<i class="fa fa-paper-plane"></i>
+</button>
 
 </form>
 
@@ -1350,6 +1355,56 @@ touchCurrentX = 0;
 
 
 /* ================= SUBMIT COMMENT AJAX ================= */
+
+document.querySelectorAll(".comment-box").forEach(function(form){
+form.addEventListener("submit", function(e){
+e.preventDefault();
+
+let reviewIdInput = form.querySelector('input[name="review_id"]');
+let commentInput = form.querySelector('input[name="comment"]');
+let reviewId = reviewIdInput ? reviewIdInput.value : "";
+let comment = commentInput ? commentInput.value.trim() : "";
+
+if(!reviewId || !comment){
+return;
+}
+
+fetch(window.location.href,{
+method:"POST",
+headers:{
+"Content-Type":"application/x-www-form-urlencoded"
+},
+body:"ajax_submit_comment=1&review_id="+encodeURIComponent(reviewId)+"&comment="+encodeURIComponent(comment)
+})
+.then(res => {
+if(res.status === 401){
+window.location.href = "login.php";
+return null;
+}
+return res.json();
+})
+.then(data =>{
+if(!data || !data.success){
+return;
+}
+
+let preview = document.querySelector('.comment-preview[data-review="'+reviewId+'"]');
+if(preview){
+preview.innerHTML = data.html;
+}
+
+if(commentInput){
+commentInput.value = "";
+}
+
+let count = document.querySelector('.comment-btn[data-review="'+reviewId+'"] .comment-count');
+if(count && data.total !== undefined){
+count.textContent = data.total;
+}
+})
+.catch(err => console.log(err));
+});
+});
 
 modalCommentForm.addEventListener("submit", function(e){
 

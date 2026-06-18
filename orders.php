@@ -18,7 +18,10 @@ if(isset($_POST['cancel'])){
 
     $update = $conn->prepare("
         UPDATE orders
-        SET status = 'Cancelled'
+        SET status = 'Cancelled',
+            cancel_reason = COALESCE(NULLIF(cancel_reason, ''), 'Cancelled by customer.'),
+            cancelled_by = 'customer',
+            cancelled_at = NOW()
         WHERE order_code = ?
           AND consumer_id = ?
           AND (buyer_account_type = ? OR (? = 'consumer' AND buyer_account_type IS NULL))
@@ -131,7 +134,9 @@ h2{margin:0 0 15px;color:#001a47}
 .btn{padding:6px 12px;border:none;border-radius:6px;font-size:12px;cursor:pointer}
 .btn-receipt{background:#001a47;color:#fff}
 .btn-cancel{background:#dc3545;color:#fff}
+.btn-review{display:inline-flex;align-items:center;text-decoration:none;background:#0f766e;color:#fff}
 .payment-note{margin-top:10px;padding:10px 12px;border-radius:10px;background:#f8fafc;color:#334155;font-size:13px}
+.cancel-note{margin-top:10px;padding:10px 12px;border-radius:10px;background:#fff1f2;color:#9f1239;font-size:13px}
 .receipt-modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);justify-content:center;align-items:center;z-index:999}
 .receipt-content{background:#fff;width:95%;max-width:420px;border-radius:18px;padding:20px;position:relative;animation:fadeIn .25s ease;box-shadow:0 10px 25px rgba(0,0,0,.15)}
 @keyframes fadeIn{from{transform:scale(.95);opacity:0}to{transform:scale(1);opacity:1}}
@@ -216,6 +221,13 @@ h2{margin:0 0 15px;color:#001a47}
                 <?php endif; ?>
                 <div>&#8369;<?= number_format((float) $item['price'], 2) ?></div>
                 <div>Business: <?= htmlspecialchars($item['business_name']) ?></div>
+                <?php if($status === "Completed" && !$isService && !empty($item['product_id']) && !empty($items[0]['payment_method'])): ?>
+                <div style="margin-top:8px;">
+                    <a class="btn btn-review" href="productdetails.php?id=<?= (int) $item['product_id'] ?>&open_review=1#reviews">
+                        Rate Product
+                    </a>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
     <?php endforeach; ?>
@@ -240,6 +252,12 @@ h2{margin:0 0 15px;color:#001a47}
             Payment: Not yet recorded.
         <?php endif; ?>
     </div>
+
+    <?php if($status === "Cancelled" && !empty($items[0]['cancel_reason'])): ?>
+    <div class="cancel-note">
+        <strong>Cancellation Reason:</strong> <?= nl2br(htmlspecialchars($items[0]['cancel_reason'])) ?>
+    </div>
+    <?php endif; ?>
 
     <div class="actions">
         <div class="left-actions">
