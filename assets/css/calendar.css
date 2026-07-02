@@ -282,6 +282,11 @@ font-weight:600;
 color:#001a47;
 }
 
+.info-value a{
+color:inherit;
+word-break:break-word;
+}
+
 .register-btn{
 width:100%;
 padding:14px;

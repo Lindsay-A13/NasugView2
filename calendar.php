@@ -14,8 +14,11 @@ $stmt = $conn->prepare("
         title,
         description,
         start_date_and_time,
+        address,
         mode_of_delivery,
+        google_meet_link,
         speaker,
+        audience,
         duration
     FROM events
     ORDER BY start_date_and_time ASC
@@ -40,8 +43,11 @@ while($row = $result->fetch_assoc()){
         "description" => $row['description'],
         "event_date" => $dateOnly,
         "is_past" => $isPast,
+        "address" => $row['address'],
         "mode_of_delivery" => $row['mode_of_delivery'],
+        "google_meet_link" => $row['google_meet_link'],
         "speaker" => $row['speaker'],
+        "audience" => $row['audience'],
         "duration" => $row['duration']
     ];
 }
@@ -131,9 +137,26 @@ function hasValue(v){
     return v !== null && v !== undefined && String(v).trim() !== "";
 }
 
-/* hide button ONLY when ALL 3 are missing */
-function allThreeMissing(event){
-    return !hasValue(event.mode_of_delivery)
+function escapeHTML(value){
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function isWebinar(event){
+    return hasValue(event.mode_of_delivery)
+        && String(event.mode_of_delivery).toLowerCase().includes("webinar");
+}
+
+/* hide button ONLY when all event details are missing */
+function allEventDetailsMissing(event){
+    return !hasValue(event.address)
+        && !hasValue(event.audience)
+        && !hasValue(event.mode_of_delivery)
+        && !(isWebinar(event) && hasValue(event.google_meet_link))
         && !hasValue(event.speaker)
         && !hasValue(event.duration);
 }
@@ -182,7 +205,7 @@ function renderCalendar(){
             html += `<div class="day-events">`;
 
             dayEvents.slice(0,2).forEach(e=>{
-                html += `<div class="day-event">• ${e.title}</div>`;
+                html += `<div class="day-event">• ${escapeHTML(e.title)}</div>`;
             });
 
             if(dayEvents.length > 2){
@@ -251,15 +274,41 @@ function renderSlide(){
 
     const event = modalEvents[currentSlide];
 
-    sliderTitle.innerHTML = event.title;
+    sliderTitle.innerHTML = escapeHTML(event.title);
 
     let infoHTML = "";
+
+    if(hasValue(event.address)){
+        infoHTML += `
+        <div class="info-item">
+            <span class="info-label">Address</span>
+            <span class="info-value">${escapeHTML(event.address)}</span>
+        </div>`;
+    }
+
+    if(hasValue(event.audience)){
+        infoHTML += `
+        <div class="info-item">
+            <span class="info-label">Audience</span>
+            <span class="info-value">${escapeHTML(event.audience)}</span>
+        </div>`;
+    }
 
     if(hasValue(event.mode_of_delivery)){
         infoHTML += `
         <div class="info-item">
             <span class="info-label">Mode of Delivery</span>
-            <span class="info-value">${event.mode_of_delivery}</span>
+            <span class="info-value">${escapeHTML(event.mode_of_delivery)}</span>
+        </div>`;
+    }
+
+    if(isWebinar(event) && hasValue(event.google_meet_link)){
+        infoHTML += `
+        <div class="info-item">
+            <span class="info-label">Google Meet</span>
+            <span class="info-value">
+                <a href="${escapeHTML(event.google_meet_link)}" target="_blank" rel="noopener noreferrer">${escapeHTML(event.google_meet_link)}</a>
+            </span>
         </div>`;
     }
 
@@ -267,7 +316,7 @@ function renderSlide(){
         infoHTML += `
         <div class="info-item">
             <span class="info-label">Speaker</span>
-            <span class="info-value">${event.speaker}</span>
+            <span class="info-value">${escapeHTML(event.speaker)}</span>
         </div>`;
     }
 
@@ -275,18 +324,18 @@ function renderSlide(){
         infoHTML += `
         <div class="info-item">
             <span class="info-label">Duration</span>
-            <span class="info-value">${event.duration}</span>
+            <span class="info-value">${escapeHTML(event.duration)}</span>
         </div>`;
     }
 
     const showRegisterButton =
-        !allThreeMissing(event) && hasValue(event.event_code) && !event.is_past;
+        !allEventDetailsMissing(event) && hasValue(event.event_code) && !event.is_past;
 
     sliderBody.innerHTML = `
     <div class="event-content">
 
         <p class="event-description">
-            ${event.description ?? ""}
+            ${escapeHTML(event.description)}
         </p>
 
         ${infoHTML !== "" ? `<div class="event-info">${infoHTML}</div>` : ""}
@@ -295,7 +344,7 @@ function renderSlide(){
 
     ${
         showRegisterButton
-        ? `<button class="register-btn" onclick="registerEvent('${event.event_code}')">Register</button>`
+        ? `<button class="register-btn" onclick='registerEvent(${JSON.stringify(event.event_code)})'>Register</button>`
         : event.is_past
             ? `<button class="register-btn register-btn-disabled" disabled>Registration Closed</button>`
         : ``

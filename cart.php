@@ -3,6 +3,7 @@ require_once "config/session.php";
 require_once "config/db.php";
 require_once "config/notifications_helper.php";
 require_once "config/orders_helper.php";
+require_once "config/product_options_helper.php";
 
 if(!isset($_SESSION['user_id'])){
     header("Location: login.php");
@@ -14,6 +15,7 @@ $account_type = $_SESSION['account_type'];
 $search = trim($_GET['search'] ?? '');
 
 ensureOrderPaymentSupport($conn);
+ensureProductOptionsSupport($conn);
 
 /* ================= DELETE SINGLE ================= */
 if(isset($_GET['delete'])){
@@ -80,12 +82,13 @@ if(isset($_POST['checkout_selected'])){
         $query = "
             SELECT
                 cart.*,
-                inventory.stock,
+                COALESCE(pv.stock, inventory.stock) AS stock,
                 COALESCE(inventory.type, 'service') AS type,
                 COALESCE(inventory.name, services.name) AS name,
                 services.duration AS service_duration
             FROM cart
             LEFT JOIN inventory ON cart.product_id = inventory.id
+            LEFT JOIN product_variants pv ON cart.variant_id = pv.id
             LEFT JOIN services ON cart.service_id = services.id
             WHERE cart.id IN ($ids) AND cart.consumer_id = ?
               AND cart.account_type = ?
@@ -125,6 +128,8 @@ if($item['type'] === "product" && $item['quantity'] > $item['stock']){
     throw new Exception("Oops! ".$item['name']." only has ".$item['stock']." left in stock.");
 }
                 $productId = !empty($item['product_id']) ? (int) $item['product_id'] : null;
+                $variantId = !empty($item['variant_id']) ? (int) $item['variant_id'] : null;
+                $variantLabel = $item['variant_label'] ?? null;
                 $serviceId = !empty($item['service_id']) ? (int) $item['service_id'] : null;
                 $bookingDate = $item['booking_date'] ?? null;
                 $bookingTime = $item['booking_time'] ?? null;
@@ -137,17 +142,19 @@ if($item['type'] === "product" && $item['quantity'] > $item['stock']){
                 /* INSERT ORDER ROW */
                 $insert = $conn->prepare("
                     INSERT INTO orders
-                    (order_code, consumer_id, buyer_account_type, business_id, product_id, service_id, quantity, price, order_type, booking_date, booking_time, booking_note, unit_label, status)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'Pending')
+                    (order_code, consumer_id, buyer_account_type, business_id, product_id, variant_id, variant_label, service_id, quantity, price, order_type, booking_date, booking_time, booking_note, unit_label, status)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'Pending')
                 ");
 
                 $insert->bind_param(
-                    "sisiiiidsssss",
+                    "sisiiisiidsssss",
                     $order_code,
                     $user_id,
                     $account_type,
                     $business_id,
                     $productId,
+                    $variantId,
+                    $variantLabel,
                     $serviceId,
                     $quantity,
                     $price,
@@ -165,12 +172,30 @@ if($item['type'] === "product" && $item['quantity'] > $item['stock']){
                 if($item['type'] === "product"){
                     $newStock = $item['stock'] - $item['quantity'];
 
-                    $updateStock = $conn->prepare("
-                        UPDATE inventory SET stock=? WHERE id=?
-                    ");
-                    $updateStock->bind_param("ii",$newStock,$item['product_id']);
+                    if(!empty($item['variant_id'])){
+                        $updateStock = $conn->prepare("
+                            UPDATE product_variants SET stock=? WHERE id=? AND product_id=?
+                        ");
+                        $updateStock->bind_param("iii",$newStock,$item['variant_id'],$item['product_id']);
+                    }else{
+                        $updateStock = $conn->prepare("
+                            UPDATE inventory SET stock=? WHERE id=?
+                        ");
+                        $updateStock->bind_param("ii",$newStock,$item['product_id']);
+                    }
                     $updateStock->execute();
                     $updateStock->close();
+
+                    if(!empty($item['variant_id'])){
+                        $syncTotal = $conn->prepare("
+                            UPDATE inventory
+                            SET stock=(SELECT COALESCE(SUM(stock),0) FROM product_variants WHERE product_id=?)
+                            WHERE id=?
+                        ");
+                        $syncTotal->bind_param("ii", $item['product_id'], $item['product_id']);
+                        $syncTotal->execute();
+                        $syncTotal->close();
+                    }
                 }
 
                 /* DELETE FROM CART */
@@ -212,12 +237,13 @@ $query = "
            cart.*,
            COALESCE(inventory.name, services.name) AS name,
            COALESCE(inventory.image, services.image) AS image,
-           inventory.stock,
+           COALESCE(pv.stock, inventory.stock) AS stock,
            COALESCE(inventory.type, 'service') AS type,
            services.duration AS service_duration,
            business_owner.business_name, business_owner.b_id
     FROM cart
     LEFT JOIN inventory ON cart.product_id = inventory.id
+    LEFT JOIN product_variants pv ON cart.variant_id = pv.id
     LEFT JOIN services ON cart.service_id = services.id
     JOIN business_owner ON cart.business_id = business_owner.b_id
     WHERE cart.consumer_id=? AND cart.account_type=?
@@ -333,6 +359,11 @@ onchange="updateTotal(); syncBusinessCheckbox(<?= $business_id ?>)">
 
 <div class="info">
 <div class="name"><?= htmlspecialchars($item['name']) ?></div>
+<?php if(!$isService && !empty($item['variant_label'])): ?>
+<div style="color:#64748b;font-size:12px;margin-top:3px;">
+Variation: <?= htmlspecialchars($item['variant_label']) ?>
+</div>
+<?php endif; ?>
 
 <div class="price">
 ₱<?= number_format($item['price'],2) ?>

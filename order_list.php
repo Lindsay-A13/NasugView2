@@ -3,6 +3,7 @@ require_once "config/session.php";
 require_once "config/db.php";
 require_once "config/notifications_helper.php";
 require_once "config/orders_helper.php";
+require_once "config/product_options_helper.php";
 
 if($_SESSION['account_type'] !== "business_owner"){
     header("Location: more.php");
@@ -10,6 +11,7 @@ if($_SESSION['account_type'] !== "business_owner"){
 }
 
 ensureOrderPaymentSupport($conn);
+ensureProductOptionsSupport($conn);
 
 $owner_id = $_SESSION['user_id'];
 
@@ -428,6 +430,9 @@ h2{margin:0 0 15px;color:#001a47}
             <img src="<?= htmlspecialchars($imagePath) ?>">
             <div class="item-info">
                 <div><strong><?= htmlspecialchars($item['name']) ?></strong></div>
+                <?php if(!$isService && !empty($item['variant_label'])): ?>
+                <div>Variation: <?= htmlspecialchars($item['variant_label']) ?></div>
+                <?php endif; ?>
                 <div><?= $isService ? 'Sessions' : 'Qty' ?>: <?= (int) $item['quantity'] ?><?= $isService && !empty($item['unit_label']) ? ' ' . htmlspecialchars($item['unit_label']) . ((int) $item['quantity'] === 1 ? '' : 's') : '' ?></div>
                 <?php if($isService && !empty($item['booking_date'])): ?>
                 <div>Appointment: <?= htmlspecialchars(date("M d, Y", strtotime($item['booking_date']))) ?><?= !empty($item['booking_time']) ? ' ' . htmlspecialchars(date("g:i A", strtotime($item['booking_time']))) : '' ?></div>
@@ -614,6 +619,7 @@ function openReceiptModal(orderCode){
                 <img src="${imagePath}">
                 <div class="receipt-item-info">
                     <strong>${item.name}</strong>
+                    ${!isService && item.variant_label ? `<div>Variation: ${item.variant_label}</div>` : ''}
                     ${isService ? 'Sessions' : 'Qty'}: ${item.quantity}${isService ? ' ' + unitLabel + (parseInt(item.quantity, 10) === 1 ? '' : 's') : ''}<br>
                     ${isService && item.booking_date ? `Appointment: ${item.booking_date}${item.booking_time ? ' ' + item.booking_time : ''}<br>` : ''}
                     ${isService && item.booking_note ? `Note: ${item.booking_note}<br>` : ''}

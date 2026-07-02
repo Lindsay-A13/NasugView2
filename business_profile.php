@@ -41,6 +41,7 @@ if($_SESSION['account_type'] !== "business_owner"){
 }
 
 $owner_id = $_SESSION['user_id'];
+$profile_error = "";
 
 /* LOAD CATEGORIES */
 $categories = [];
@@ -109,48 +110,121 @@ if(isset($_POST['save'])){
     $cover_name = $data['business_photo'];
 
     if(!empty($_FILES['cover']['name'])){
-        $cover_name = time()."_cover_".$_FILES['cover']['name'];
-        move_uploaded_file($_FILES['cover']['tmp_name'], "uploads/business_cover/".$cover_name);
+        $cover = $_FILES['cover'];
+        $allowed_types = ['image/jpeg', 'image/png', 'image/webp'];
+        $max_cover_size = 5 * 1024 * 1024;
+        $image_info = null;
+
+        if($cover['error'] !== UPLOAD_ERR_OK){
+            $profile_error = "Cover photo upload failed. Please choose another image.";
+        }else{
+            $image_info = getimagesize($cover['tmp_name']);
+
+            if($cover['size'] > $max_cover_size){
+                $profile_error = "Cover photo must be 5MB or smaller.";
+            }else if($image_info === false || !in_array($image_info['mime'], $allowed_types, true)){
+                $profile_error = "Cover photo must be a JPG, PNG, or WebP image.";
+            }else if($image_info[0] < 1200 || $image_info[1] < 400){
+                $profile_error = "Cover photo must be at least 1200px wide and 400px tall for a clear display.";
+            }else{
+                $extension = strtolower(pathinfo($cover['name'], PATHINFO_EXTENSION));
+                $safe_extension = in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true) ? $extension : 'jpg';
+                $cover_name = time()."_cover_".bin2hex(random_bytes(4)).".".$safe_extension;
+
+                if(!move_uploaded_file($cover['tmp_name'], "uploads/business_cover/".$cover_name)){
+                    $profile_error = "Cover photo could not be saved. Please try again.";
+                    $cover_name = $data['business_photo'];
+                }
+            }
+        }
     }
 
-    $update = $conn->prepare("
-        UPDATE business_owner
-        SET business_name=?, description=?, phone=?, address=?,
-            category_id = NULLIF(?, 0),
-            latitude=NULLIF(?, ''),
-            longitude=NULLIF(?, ''),
-            business_photo=?
-        WHERE b_id=?
-    ");
+    if($profile_error === ""){
+        $update = $conn->prepare("
+            UPDATE business_owner
+            SET business_name=?, description=?, phone=?, address=?,
+                category_id = NULLIF(?, 0),
+                latitude=NULLIF(?, ''),
+                longitude=NULLIF(?, ''),
+                business_photo=?
+            WHERE b_id=?
+        ");
 
-    $update->bind_param(
-        "ssssisssi",
-        $business_name,
-        $description,
-        $phone,
-        $address,
-        $category_id,
-        $latitude,
-        $longitude,
-        $cover_name,
-        $owner_id
-    );
+        $update->bind_param(
+            "ssssisssi",
+            $business_name,
+            $description,
+            $phone,
+            $address,
+            $category_id,
+            $latitude,
+            $longitude,
+            $cover_name,
+            $owner_id
+        );
 
-    $update->execute();
-    $update->close();
+        $update->execute();
+        $update->close();
 
-    header("Location: business_profile.php");
-    exit;
+        header("Location: business_profile.php");
+        exit;
+    }
+}
+
+/* LOAD PRODUCT CATEGORIES */
+$product_categories = [];
+$selected_product_category = isset($_GET['product_category']) ? (int) $_GET['product_category'] : 0;
+
+$product_category_stmt = $conn->prepare("
+    SELECT id, name
+    FROM inventory_categories
+    WHERE owner_id = ?
+    ORDER BY name ASC
+");
+
+if($product_category_stmt){
+    $product_category_stmt->bind_param("i", $owner_id);
+    $product_category_stmt->execute();
+    $product_category_result = $product_category_stmt->get_result();
+
+    while($category = $product_category_result->fetch_assoc()){
+        $product_categories[] = $category;
+    }
+
+    $product_category_stmt->close();
+}
+
+$valid_product_category_ids = array_map(static function(array $category): int {
+    return (int) $category['id'];
+}, $product_categories);
+
+if($selected_product_category > 0 && !in_array($selected_product_category, $valid_product_category_ids, true)){
+    $selected_product_category = 0;
 }
 
 /* LOAD PRODUCTS */
-$product_stmt = $conn->prepare("
-    SELECT id, name, description, price, stock, image
-    FROM inventory
-    WHERE owner_id = ? AND type = 'product'
-    ORDER BY created_at DESC
-");
-$product_stmt->bind_param("i", $owner_id);
+if($selected_product_category > 0){
+    $product_stmt = $conn->prepare("
+        SELECT i.id, i.name, i.description, i.price, i.stock, i.image, COALESCE(c.name, 'Uncategorized') AS category_name
+        FROM inventory i
+        LEFT JOIN inventory_categories c
+            ON i.category_id = c.id
+        WHERE i.owner_id = ? AND i.type = 'product' AND i.category_id = ?
+        ORDER BY i.name ASC
+    ");
+    $product_stmt->bind_param("ii", $owner_id, $selected_product_category);
+}else{
+    $product_stmt = $conn->prepare("
+        SELECT i.id, i.name, i.description, i.price, i.stock, i.image, COALESCE(c.name, 'Uncategorized') AS category_name
+        FROM inventory i
+        LEFT JOIN inventory_categories c
+            ON i.category_id = c.id
+        WHERE i.owner_id = ? AND i.type = 'product'
+        ORDER BY i.name ASC
+    ");
+    $product_stmt->bind_param("i", $owner_id);
+}
+
 $product_stmt->execute();
 $products = $product_stmt->get_result();
 
@@ -245,11 +319,37 @@ body{margin:0;font-family:Arial;background:#ffff;}
 
 /* PRODUCTS */
 .products-section{margin-top:40px;}
+.products-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    margin-bottom:20px;
+}
 .products-title{
     font-size:22px;
     font-weight:700;
-    margin-bottom:20px;
+    margin-bottom:0;
     color:#001a47;
+}
+.products-filter{
+    display:flex;
+    align-items:center;
+    gap:10px;
+}
+.products-filter label{
+    font-size:13px;
+    font-weight:600;
+    color:#475569;
+}
+.products-filter select{
+    min-width:210px;
+    padding:10px 12px;
+    border:1px solid #d6dce6;
+    border-radius:10px;
+    background:#fff;
+    color:#0f172a;
+    font-size:14px;
 }
 .products-grid{
     display:grid;
@@ -271,6 +371,17 @@ body{margin:0;font-family:Arial;background:#ffff;}
 .product-name{font-weight:600;margin-bottom:8px;}
 .product-price{color:#001a47;font-weight:700;margin-bottom:5px;}
 .product-stock{font-size:13px;color:#666;}
+.product-category{
+    display:inline-flex;
+    max-width:100%;
+    margin-top:8px;
+    padding:5px 8px;
+    border-radius:999px;
+    background:#eef2f7;
+    color:#334155;
+    font-size:12px;
+    font-weight:600;
+}
 
 /* MODAL */
 .modal-overlay{
@@ -366,6 +477,42 @@ body{margin:0;font-family:Arial;background:#ffff;}
     font-size:13px;
     color:#475569;
 }
+.upload-guidelines{
+    margin:10px 0 0;
+    padding:12px 14px;
+    border:1px solid #dbe3ee;
+    border-radius:12px;
+    background:#f8fafc;
+    color:#475569;
+    font-size:13px;
+    line-height:1.5;
+}
+.upload-guidelines strong{
+    display:block;
+    margin-bottom:4px;
+    color:#001a47;
+}
+.upload-guidelines ul{
+    margin:6px 0 0 18px;
+    padding:0;
+}
+.upload-error{
+    margin:0 0 16px;
+    padding:12px 14px;
+    border:1px solid #fecaca;
+    border-radius:12px;
+    background:#fef2f2;
+    color:#b42318;
+    font-size:14px;
+    font-weight:600;
+}
+.file-error{
+    display:none;
+    margin-top:8px;
+    color:#b42318;
+    font-size:13px;
+    font-weight:600;
+}
 
 .modal button{
     width:100%;
@@ -383,6 +530,19 @@ body{margin:0;font-family:Arial;background:#ffff;}
     .content{padding:20px 16px;}
     .cover{height:220px;}
     .profile-map{height:180px;}
+    .products-header{
+        align-items:stretch;
+        flex-direction:column;
+    }
+    .products-filter{
+        align-items:stretch;
+        flex-direction:column;
+        gap:6px;
+    }
+    .products-filter select{
+        width:100%;
+        min-width:0;
+    }
     .modal-overlay{
         align-items:flex-end;
         padding:10px;
@@ -463,9 +623,24 @@ if(!empty($data['business_photo'])){
         </div>
     </div>
 
-    <!-- PRODUCTS -->
+<!-- PRODUCTS -->
 <div class="products-section">
-    <div class="products-title">Products</div>
+    <div class="products-header">
+        <div class="products-title">Products</div>
+
+        <form method="GET" class="products-filter">
+            <label for="productCategoryFilter">Category</label>
+            <select name="product_category" id="productCategoryFilter" onchange="this.form.submit()">
+                <option value="0">All Categories</option>
+                <?php foreach($product_categories as $category): ?>
+                    <option value="<?php echo (int) $category['id']; ?>"
+                        <?php echo $selected_product_category === (int) $category['id'] ? 'selected' : ''; ?>>
+                        <?php echo htmlspecialchars($category['name']); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+    </div>
 
     <div class="products-grid">
         <?php if($products->num_rows > 0): ?>
@@ -489,6 +664,10 @@ if(!empty($data['business_photo'])){
                             <div class="product-stock">
                                 Stock: <?php echo $row['stock']; ?>
                             </div>
+
+                            <div class="product-category">
+                                <?php echo htmlspecialchars($row['category_name']); ?>
+                            </div>
                         </div>
                     </div>
 
@@ -496,7 +675,7 @@ if(!empty($data['business_photo'])){
 
             <?php endwhile; ?>
         <?php else: ?>
-            <p>No products yet.</p>
+            <p><?php echo $selected_product_category > 0 ? 'No products found in this category.' : 'No products yet.'; ?></p>
         <?php endif; ?>
     </div>
 </div>
@@ -509,12 +688,26 @@ if(!empty($data['business_photo'])){
         <h3>Edit Business Information</h3>
 
         <form method="POST" enctype="multipart/form-data">
+            <?php if($profile_error !== ""): ?>
+                <div class="upload-error"><?php echo htmlspecialchars($profile_error); ?></div>
+            <?php endif; ?>
 
             <div class="form-group">
 
     <label style="font-weight:600; display:block; margin-bottom:8px;">
         Change Cover Photo
     </label>
+
+    <div class="upload-guidelines">
+        <strong>Cover photo requirements for a clear image</strong>
+        <ul>
+            <li>Use a landscape photo, at least 1200px wide and 400px tall.</li>
+            <li>Recommended size: 1600px by 600px or larger.</li>
+            <li>Accepted formats: JPG, PNG, or WebP.</li>
+            <li>Maximum file size: 5MB.</li>
+            <li>Keep important text or logos near the center because the cover may crop on mobile.</li>
+        </ul>
+    </div>
 
     <div style="position:relative;">
 
@@ -547,10 +740,12 @@ if(!empty($data['business_photo'])){
         <input type="file"
                name="cover"
                id="coverInput"
+               accept="image/jpeg,image/png,image/webp"
                style="display:none;"
                onchange="showFileName(this)">
 
     </div>
+    <div class="file-error" id="coverFileError"></div>
 
 </div>
 
@@ -638,10 +833,63 @@ window.onclick = function(e){
     }
 }
 
+function setCoverFileError(message){
+    const errorEl = document.getElementById("coverFileError");
+    errorEl.textContent = message;
+    errorEl.style.display = message ? "block" : "none";
+}
+
+function resetCoverInput(input){
+    input.value = "";
+    document.getElementById("fileName").value = "";
+}
+
 function showFileName(input){
-    if(input.files.length > 0){
-        document.getElementById("fileName").value = input.files[0].name;
+    setCoverFileError("");
+
+    if(input.files.length === 0){
+        document.getElementById("fileName").value = "";
+        return;
     }
+
+    const file = input.files[0];
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    const maxSize = 5 * 1024 * 1024;
+
+    if(!allowedTypes.includes(file.type)){
+        setCoverFileError("Choose a JPG, PNG, or WebP image.");
+        resetCoverInput(input);
+        return;
+    }
+
+    if(file.size > maxSize){
+        setCoverFileError("Cover photo must be 5MB or smaller.");
+        resetCoverInput(input);
+        return;
+    }
+
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = function(){
+        URL.revokeObjectURL(objectUrl);
+
+        if(image.width < 1200 || image.height < 400){
+            setCoverFileError("Use an image at least 1200px wide and 400px tall.");
+            resetCoverInput(input);
+            return;
+        }
+
+        document.getElementById("fileName").value = file.name;
+    };
+
+    image.onerror = function(){
+        URL.revokeObjectURL(objectUrl);
+        setCoverFileError("This file could not be read as an image.");
+        resetCoverInput(input);
+    };
+
+    image.src = objectUrl;
 }
 
 function updateCoordPreview(lat, lng){
@@ -768,6 +1016,10 @@ function initProfileMap(){
 }
 
 initProfileMap();
+
+<?php if($profile_error !== ""): ?>
+openModal();
+<?php endif; ?>
 </script>
 
 <?php include 'bottom_nav.php'; ?>

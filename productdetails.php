@@ -3,6 +3,7 @@ require_once "config/session.php";
 require_once "config/db.php";
 require_once "config/cart_count.php";
 require_once "config/item_reviews_helper.php";
+require_once "config/product_options_helper.php";
 
 if(!isset($_SESSION['user_id'])){
     header("Location: login.php");
@@ -16,6 +17,8 @@ $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 if($id <= 0){
     die("Product not found.");
 }
+
+ensureProductOptionsSupport($conn);
 
 $createReviewsTableSql = "
 CREATE TABLE IF NOT EXISTS product_reviews (
@@ -62,7 +65,47 @@ if(!$product){
     die("Product not found.");
 }
 
-$stockCount = max(0, (int) ($product['stock'] ?? 0));
+$imageStmt = $conn->prepare("
+    SELECT image
+    FROM product_images
+    WHERE product_id=?
+    ORDER BY sort_order ASC, id ASC
+");
+$imageStmt->bind_param("i", $id);
+$imageStmt->execute();
+$imageRows = $imageStmt->get_result();
+$productImages = [];
+while($imageRow = $imageRows->fetch_assoc()){
+    $productImages[] = $imageRow['image'];
+}
+$imageStmt->close();
+
+if(empty($productImages) && !empty($product['image'])){
+    $productImages[] = $product['image'];
+}
+
+$variantStmt = $conn->prepare("
+    SELECT id, color, size, price, stock
+    FROM product_variants
+    WHERE product_id=?
+    ORDER BY id ASC
+");
+$variantStmt->bind_param("i", $id);
+$variantStmt->execute();
+$variantRows = $variantStmt->get_result();
+$productVariants = [];
+while($variant = $variantRows->fetch_assoc()){
+    $variant['label'] = productVariantLabel($variant);
+    $productVariants[] = $variant;
+}
+$variantStmt->close();
+
+$hasVariants = count($productVariants) > 0;
+$variantStockTotal = 0;
+foreach($productVariants as $variant){
+    $variantStockTotal += (int) $variant['stock'];
+}
+$stockCount = $hasVariants ? max(0, $variantStockTotal) : max(0, (int) ($product['stock'] ?? 0));
 $isOutOfStock = $stockCount <= 0;
 $canAddToCart = !$isOutOfStock;
 
@@ -105,8 +148,39 @@ if(isset($_POST['ajax_add'])){
     }
 
     $qty = max(1, (int) ($_POST['quantity'] ?? 1));
+    $variantId = isset($_POST['variant_id']) ? (int) $_POST['variant_id'] : 0;
+    $variantLabel = null;
+    $selectedPrice = (float) $product['price'];
+    $availableStock = $stockCount;
 
-    if($qty > $stockCount){
+    if($hasVariants){
+        if($variantId <= 0){
+            echo "variant_required";
+            exit;
+        }
+
+        $variantCheck = $conn->prepare("
+            SELECT id, color, size, price, stock
+            FROM product_variants
+            WHERE id=? AND product_id=?
+            LIMIT 1
+        ");
+        $variantCheck->bind_param("ii", $variantId, $id);
+        $variantCheck->execute();
+        $selectedVariant = $variantCheck->get_result()->fetch_assoc();
+        $variantCheck->close();
+
+        if(!$selectedVariant){
+            echo "variant_required";
+            exit;
+        }
+
+        $variantLabel = productVariantLabel($selectedVariant);
+        $selectedPrice = $selectedVariant['price'] !== null ? (float) $selectedVariant['price'] : (float) $product['price'];
+        $availableStock = max(0, (int) $selectedVariant['stock']);
+    }
+
+    if($qty > $availableStock){
         echo "stock_limit";
         exit;
     }
@@ -119,8 +193,13 @@ if(isset($_POST['ajax_add'])){
         WHERE consumer_id = ?
           AND account_type = ?
           AND product_id = ?
+          AND " . ($hasVariants ? "variant_id = ?" : "variant_id IS NULL") . "
     ");
-    $check->bind_param("isi", $user_id, $account_type, $id);
+    if($hasVariants){
+        $check->bind_param("isii", $user_id, $account_type, $id, $variantId);
+    }else{
+        $check->bind_param("isi", $user_id, $account_type, $id);
+    }
     $check->execute();
     $result = $check->get_result();
 
@@ -128,7 +207,7 @@ if(isset($_POST['ajax_add'])){
         $row = $result->fetch_assoc();
         $newQty = $row['quantity'] + $qty;
 
-        if($newQty > $stockCount){
+        if($newQty > $availableStock){
             $check->close();
             echo "stock_limit";
             exit;
@@ -147,17 +226,20 @@ if(isset($_POST['ajax_add'])){
     } else {
         $insert = $conn->prepare("
             INSERT INTO cart
-            (consumer_id, account_type, business_id, product_id, quantity, price)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (consumer_id, account_type, business_id, product_id, variant_id, variant_label, quantity, price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ");
+        $cartVariantId = $hasVariants ? $variantId : null;
         $insert->bind_param(
-            "isiiid",
+            "isiiisid",
             $user_id,
             $account_type,
             $product['owner_id'],
             $id,
+            $cartVariantId,
+            $variantLabel,
             $qty,
-            $product['price']
+            $selectedPrice
         );
         $insert->execute();
         $insert->close();
@@ -220,8 +302,8 @@ $productReviewsStmt->execute();
 $productReviews = $productReviewsStmt->get_result();
 
 $reviewStatus = $_GET['review'] ?? '';
-$productImage = !empty($product['image'])
-    ? "uploads/product/" . $product['image']
+$productImage = !empty($productImages)
+    ? "uploads/product/" . $productImages[0]
     : "uploads/product/default_product.jpg";
 $businessImage = !empty($product['business_photo'])
     ? "uploads/business_cover/" . $product['business_photo']
@@ -250,6 +332,9 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .container{max-width:1100px;margin:auto;padding:20px;padding-bottom:140px}
 .detail-card{display:grid;grid-template-columns:1.05fr .95fr;gap:28px;background:#fff;padding:24px;border-radius:16px;box-shadow:0 8px 22px rgba(0,0,0,.08)}
 .product-image{width:100%;height:100%;min-height:320px;object-fit:cover;border-radius:14px;background:#f8fafc}
+.product-gallery{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:12px}
+.product-thumb{width:100%;height:72px;object-fit:cover;border:2px solid transparent;border-radius:10px;background:#f8fafc;cursor:pointer}
+.product-thumb.active{border-color:#001a47}
 .eyebrow{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:10px}
 .product-title{margin:0 0 10px;font-size:32px;line-height:1.15;color:#001a47}
 .product-meta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
@@ -269,6 +354,14 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 .stock-badge{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;font-size:13px;font-weight:600}
 .stock-badge.in-stock{background:#ecfdf3;color:#166534}
 .stock-badge.out-stock{background:#fef2f2;color:#b91c1c}
+.variant-picker{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.variant-picker-title{font-size:13px;font-weight:700;color:#334155}
+.variant-options{display:flex;flex-wrap:wrap;gap:8px}
+.variant-option{position:relative}
+.variant-option input{position:absolute;opacity:0;pointer-events:none}
+.variant-option span{display:inline-flex;align-items:center;gap:6px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#334155;font-size:13px;font-weight:600;cursor:pointer}
+.variant-option input:checked + span{border-color:#001a47;background:#e6eef9;color:#001a47}
+.variant-option input:disabled + span{opacity:.5;cursor:not-allowed;text-decoration:line-through}
 .qty-control{display:inline-flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;border:1px solid #dbe2ea;background:#fff}
 .qty-btn{width:34px;height:34px;border:none;border-radius:10px;background:#e2e8f0;color:#0f172a;font-size:18px;cursor:pointer}
 .qty-value{width:54px;min-width:54px;text-align:center;font-size:16px;font-weight:700;color:#001a47;border:0;outline:0;background:transparent}
@@ -375,6 +468,18 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 <div class="detail-card">
 <div>
 <img src="<?= htmlspecialchars($productImage) ?>" class="product-image" id="productImage" alt="<?= htmlspecialchars($product['name']) ?>">
+<?php if(count($productImages) > 1): ?>
+<div class="product-gallery">
+<?php foreach($productImages as $index => $imageName): ?>
+<img
+src="uploads/product/<?= htmlspecialchars($imageName) ?>"
+class="product-thumb <?= $index === 0 ? 'active' : '' ?>"
+alt="<?= htmlspecialchars($product['name']) ?>"
+onclick="setProductImage(this)"
+>
+<?php endforeach; ?>
+</div>
+<?php endif; ?>
 </div>
 
 <div>
@@ -389,7 +494,7 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 <div class="meta-chip"><i class="fa fa-box"></i><?= $stockCount ?> in stock</div>
 </div>
 
-<div class="price">&#8369;<?= number_format((float) $product['price'], 2) ?></div>
+<div class="price" id="productPrice">&#8369;<?= number_format((float) $product['price'], 2) ?></div>
 
 <div class="rating-row">
 <div class="rating-stars" aria-label="<?= $totalReviews > 0 ? number_format($avgRating, 1) : '0.0' ?> out of 5 stars">
@@ -419,6 +524,32 @@ body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#0f1
 <?= $isOutOfStock ? 'Out of Stock' : 'Available Now' ?>
 </div>
 </div>
+
+<?php if($hasVariants): ?>
+<div class="variant-picker">
+<div class="variant-picker-title">Variation</div>
+<div class="variant-options">
+<?php foreach($productVariants as $variant): ?>
+<?php
+$variantPrice = $variant['price'] !== null ? (float) $variant['price'] : (float) $product['price'];
+$variantStock = max(0, (int) $variant['stock']);
+?>
+<label class="variant-option">
+<input
+type="radio"
+name="variant_id"
+value="<?= (int) $variant['id'] ?>"
+data-stock="<?= $variantStock ?>"
+data-price="<?= $variantPrice ?>"
+data-label="<?= htmlspecialchars($variant['label']) ?>"
+<?= $variantStock <= 0 ? 'disabled' : '' ?>
+>
+<span><?= htmlspecialchars($variant['label']) ?><?= $variantStock <= 0 ? ' - Out' : ' - ' . $variantStock . ' left' ?></span>
+</label>
+<?php endforeach; ?>
+</div>
+</div>
+<?php endif; ?>
 
 <div class="qty-control">
 <button type="button" class="qty-btn" onclick="decreaseQty()">-</button>
@@ -575,8 +706,10 @@ Post as Anonymous
 
 <script>
 let quantity = 1;
-const maxStock = <?= $stockCount ?>;
+let maxStock = <?= $stockCount ?>;
 const qtyInput = document.getElementById("qty");
+const hasVariants = <?= $hasVariants ? 'true' : 'false' ?>;
+let selectedVariantId = "";
 
 function clampQty(value){
   let nextQty = parseInt(value, 10);
@@ -620,6 +753,11 @@ qtyInput.addEventListener("blur", function(){
 function addToCartAnimation(){
   const addToCartBtn = document.getElementById("addToCartBtn");
   if(addToCartBtn.disabled){
+    return;
+  }
+
+  if(hasVariants && !selectedVariantId){
+    openMessageModal("Please choose a variation first.");
     return;
   }
 
@@ -671,7 +809,7 @@ function addToCartAnimation(){
   fetch("", {
     method: "POST",
     headers: {"Content-Type": "application/x-www-form-urlencoded"},
-    body: "ajax_add=1&quantity=" + quantity
+    body: "ajax_add=1&quantity=" + quantity + "&variant_id=" + encodeURIComponent(selectedVariantId)
   })
   .then(res => res.text())
   .then(data => {
@@ -684,6 +822,8 @@ function addToCartAnimation(){
         openMessageModal("This product is out of stock.");
       } else if(result === "stock_limit"){
         openMessageModal("Requested quantity exceeds available stock.");
+      } else if(result === "variant_required"){
+        openMessageModal("Please choose a variation first.");
       }
       return;
     }
@@ -717,6 +857,27 @@ function addToCartAnimation(){
     }, 1000);
   });
 }
+
+function setProductImage(thumb){
+  const main = document.getElementById("productImage");
+  main.src = thumb.src;
+  document.querySelectorAll(".product-thumb").forEach(function(item){
+    item.classList.toggle("active", item === thumb);
+  });
+}
+
+document.querySelectorAll("input[name='variant_id']").forEach(function(input){
+  input.addEventListener("change", function(){
+    selectedVariantId = this.value;
+    maxStock = parseInt(this.dataset.stock, 10) || 0;
+    const price = parseFloat(this.dataset.price || "0");
+    const priceEl = document.getElementById("productPrice");
+    if(priceEl && !Number.isNaN(price)){
+      priceEl.innerHTML = "&#8369;" + price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+    setQty(qtyInput.value);
+  });
+});
 
 const modal = document.getElementById("modal");
 const modalContent = modal.querySelector(".modal-content");

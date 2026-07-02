@@ -1,6 +1,7 @@
 <?php
 require_once "config/session.php";
 require_once "config/db.php";
+require_once "config/product_options_helper.php";
 
 if($_SESSION['account_type'] !== "business_owner"){
     header("Location: more.php");
@@ -40,6 +41,7 @@ ensureInventoryColumnExists(
     "ALTER TABLE inventory ADD COLUMN last_added_at DATETIME NULL AFTER created_at"
 );
 $conn->query("UPDATE inventory SET last_added_at = created_at WHERE last_added_at IS NULL");
+ensureProductOptionsSupport($conn);
 
 $edit_id = $_GET['edit_id'] ?? 0;
 $editProduct = null;
@@ -228,6 +230,13 @@ if(isset($_POST['add_inventory'])){
     $desc = $desc === '' ? null : $desc;
     $price = $_POST['price'];
     $stock = (int) $_POST['stock'];
+    $variants = normalizeProductVariantInput($_POST);
+    if(!empty($variants)){
+        $stock = 0;
+        foreach($variants as $variant){
+            $stock += (int) $variant['stock'];
+        }
+    }
     $category = $_POST['category_id'];
     $expiration = $_POST['expiration_date'] ?: NULL;
 
@@ -292,6 +301,13 @@ if(isset($_POST['add_inventory'])){
     );
 
     $stmt->execute();
+    $productId = (int) $stmt->insert_id;
+    $stmt->close();
+
+    if($productId > 0){
+        storeProductImages($conn, $productId, $_FILES['images'] ?? [], $image_name);
+        syncProductVariants($conn, $productId, $variants);
+    }
 
     header("Location: inventory.php?tab=list");
     exit;
@@ -308,6 +324,13 @@ if(isset($_POST['update_inventory'])){
     $desc = $desc === '' ? null : $desc;
     $price = $_POST['price'];
     $stock = (int) $_POST['stock'];
+    $variants = normalizeProductVariantInput($_POST);
+    if(!empty($variants)){
+        $stock = 0;
+        foreach($variants as $variant){
+            $stock += (int) $variant['stock'];
+        }
+    }
     $category = (int) $_POST['category_id'];
     $expiration = $_POST['expiration_date'] ?: NULL;
 
@@ -324,7 +347,15 @@ if(isset($_POST['update_inventory'])){
     if(!empty($_FILES['image']['name'])){
 
         if($old['image']){
-            unlink("uploads/product/".$old['image']);
+            $deleteImageRow = $conn->prepare("DELETE FROM product_images WHERE product_id=? AND image=?");
+            $deleteImageRow->bind_param("is", $id, $old['image']);
+            $deleteImageRow->execute();
+            $deleteImageRow->close();
+
+            $oldImagePath = "uploads/product/".$old['image'];
+            if(file_exists($oldImagePath)){
+                unlink($oldImagePath);
+            }
         }
 
         $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
@@ -367,6 +398,10 @@ if(isset($_POST['update_inventory'])){
     );
 
     $stmt->execute();
+    $stmt->close();
+
+    storeProductImages($conn, $id, $_FILES['images'] ?? [], $image_name);
+    syncProductVariants($conn, $id, $variants);
 
     header("Location: inventory.php?tab=list");
     exit;
@@ -390,8 +425,33 @@ if(isset($_GET['delete'])){
     $img=$stmt->get_result()->fetch_assoc();
 
     if($img && $img['image']){
-        unlink("uploads/product/".$img['image']);
+        $imagePath = "uploads/product/".$img['image'];
+        if(file_exists($imagePath)){
+            unlink($imagePath);
+        }
     }
+
+    $image_stmt = $conn->prepare("SELECT image FROM product_images WHERE product_id=?");
+    $image_stmt->bind_param("i", $id);
+    $image_stmt->execute();
+    $extraImages = $image_stmt->get_result();
+    while($extra = $extraImages->fetch_assoc()){
+        $imagePath = "uploads/product/".$extra['image'];
+        if($imagePath !== "uploads/product/".($img['image'] ?? '') && file_exists($imagePath)){
+            unlink($imagePath);
+        }
+    }
+    $image_stmt->close();
+
+    $cleanupImages = $conn->prepare("DELETE FROM product_images WHERE product_id=?");
+    $cleanupImages->bind_param("i", $id);
+    $cleanupImages->execute();
+    $cleanupImages->close();
+
+    $cleanupVariants = $conn->prepare("DELETE FROM product_variants WHERE product_id=?");
+    $cleanupVariants->bind_param("i", $id);
+    $cleanupVariants->execute();
+    $cleanupVariants->close();
 
     $stmt=$conn->prepare("
         DELETE FROM inventory
@@ -481,6 +541,42 @@ $inv_stmt->bind_param("i",$owner_id);
 $inv_stmt->execute();
 
 $inventory=$inv_stmt->get_result();
+$inventoryRows = [];
+$productIds = [];
+while($row = $inventory->fetch_assoc()){
+    $inventoryRows[] = $row;
+    $productIds[] = (int) $row['id'];
+}
+
+$productImagesById = [];
+$productVariantsById = [];
+if(!empty($productIds)){
+    $idsSql = implode(",", array_map("intval", $productIds));
+
+    $imagesResult = $conn->query("
+        SELECT product_id, image
+        FROM product_images
+        WHERE product_id IN ($idsSql)
+        ORDER BY sort_order ASC, id ASC
+    ");
+    if($imagesResult){
+        while($imageRow = $imagesResult->fetch_assoc()){
+            $productImagesById[(int) $imageRow['product_id']][] = $imageRow['image'];
+        }
+    }
+
+    $variantsResult = $conn->query("
+        SELECT id, product_id, color, size, price, stock
+        FROM product_variants
+        WHERE product_id IN ($idsSql)
+        ORDER BY id ASC
+    ");
+    if($variantsResult){
+        while($variantRow = $variantsResult->fetch_assoc()){
+            $productVariantsById[(int) $variantRow['product_id']][] = $variantRow;
+        }
+    }
+}
 
 /* LOAD SERVICES */
 $svc_stmt = $conn->prepare("
@@ -495,29 +591,30 @@ $svc_stmt->execute();
 
 $services = $svc_stmt->get_result();
 
-/* LOAD EXPIRATIONS */
-$exp_stmt = $conn->prepare("
-SELECT 
-i.*,
-c.name as category
-FROM inventory i
-LEFT JOIN inventory_categories c
-ON i.category_id=c.id
-WHERE 
-i.owner_id=?
-AND i.expiration_date IS NOT NULL
-AND i.expiration_date!=''
-ORDER BY i.expiration_date ASC
-");
-
-$exp_stmt->bind_param("i",$owner_id);
-$exp_stmt->execute();
-
-$expirations = $exp_stmt->get_result();
-
-
 $tab=$_GET['tab'] ?? "list";
+if(!in_array($tab, ["list", "services", "categories"], true)){
+    $tab = "list";
+}
 $duplicateProductName = trim($_GET['duplicate_product'] ?? '');
+$editProductVariants = [];
+if($editProduct){
+    $editVariantStmt = $conn->prepare("
+        SELECT id, product_id, color, size, price, stock
+        FROM product_variants
+        WHERE product_id=?
+        ORDER BY id ASC
+    ");
+    if($editVariantStmt){
+        $editId = (int) $editProduct['id'];
+        $editVariantStmt->bind_param("i", $editId);
+        $editVariantStmt->execute();
+        $editVariantRows = $editVariantStmt->get_result();
+        while($variant = $editVariantRows->fetch_assoc()){
+            $editProductVariants[] = $variant;
+        }
+        $editVariantStmt->close();
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -565,6 +662,172 @@ min-width:72px;
 padding:11px 18px !important;
 margin:0 !important;
 }
+
+#modal,
+#serviceModal,
+#viewModal,
+#viewServiceModal{
+align-items:center !important;
+justify-content:center !important;
+padding:18px !important;
+z-index:1000001 !important;
+}
+
+#modal .modal-content,
+#serviceModal .modal-content{
+width:100% !important;
+max-width:620px !important;
+max-height:calc(100vh - 80px) !important;
+overflow-y:auto !important;
+border-radius:12px !important;
+padding:20px !important;
+padding-bottom:26px !important;
+box-sizing:border-box !important;
+}
+
+#viewModal .modal-content,
+#viewServiceModal .modal-content{
+width:100% !important;
+max-width:430px !important;
+max-height:calc(100vh - 80px) !important;
+overflow-y:auto !important;
+border-radius:12px !important;
+box-sizing:border-box !important;
+}
+
+#inventoryForm{
+gap:10px !important;
+}
+
+#inventoryForm input,
+#inventoryForm select,
+#inventoryForm textarea{
+font-size:14px !important;
+padding:10px 12px !important;
+}
+
+#inventoryForm textarea{
+min-height:74px !important;
+resize:vertical !important;
+}
+
+#inventoryForm #submitBtn{
+width:100% !important;
+margin-top:4px !important;
+padding:12px !important;
+font-size:14px !important;
+}
+
+.variant-section{
+margin:14px 0;
+padding:12px;
+border:1px solid #e5e7eb;
+border-radius:10px;
+background:#f8fafc;
+}
+
+.variant-heading{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:10px;
+font-size:13px;
+font-weight:700;
+color:#001a47;
+}
+
+.variant-heading button{
+width:auto !important;
+margin:0 !important;
+padding:8px 10px !important;
+border-radius:8px !important;
+font-size:12px !important;
+}
+
+.variant-help{
+margin-top:6px;
+font-size:12px;
+line-height:1.4;
+color:#64748b;
+}
+
+.variant-row{
+display:grid;
+grid-template-columns:1fr 1fr 1fr 90px 36px;
+gap:8px;
+align-items:end;
+margin-top:10px;
+}
+
+.variant-row input{
+padding:9px !important;
+font-size:13px !important;
+}
+
+.variant-remove{
+height:36px;
+border:0;
+border-radius:8px;
+background:#fee2e2;
+color:#b91c1c;
+cursor:pointer;
+}
+
+.view-gallery{
+display:grid;
+grid-template-columns:repeat(4,1fr);
+gap:8px;
+margin:-5px 0 15px;
+}
+
+.view-gallery img{
+width:100%;
+height:58px;
+object-fit:cover;
+border-radius:8px;
+border:1px solid #e5e7eb;
+}
+
+.view-variants{
+display:flex;
+flex-direction:column;
+gap:6px;
+margin-top:6px;
+}
+
+.view-variant-row{
+padding:8px 10px;
+border:1px solid #e5e7eb;
+border-radius:8px;
+background:#f8fafc;
+font-size:13px;
+color:#334155;
+}
+
+@media(max-width:768px){
+#modal,
+#serviceModal,
+#viewModal,
+#viewServiceModal{
+align-items:flex-end !important;
+padding:0 !important;
+}
+
+#modal .modal-content,
+#serviceModal .modal-content,
+#viewModal .modal-content,
+#viewServiceModal .modal-content{
+max-width:100% !important;
+max-height:calc(100vh - 18px) !important;
+border-radius:16px 16px 0 0 !important;
+padding:16px !important;
+padding-bottom:24px !important;
+}
+
+.variant-row{
+grid-template-columns:1fr 1fr;
+}
+}
 </style>
 
 <?php require_once "config/theme.php"; render_theme_head(); ?>
@@ -581,7 +844,6 @@ margin:0 !important;
 <a href="?tab=list" class="tab <?= $tab=='list'?'active':'' ?>">Product</a>
 <a href="?tab=services" class="tab <?= $tab=='services'?'active':'' ?>">Services</a>
 <a href="?tab=categories" class="tab <?= $tab=='categories'?'active':'' ?>">Categories</a>
-<a href="?tab=exp" class="tab <?= $tab=='exp'?'active':'' ?>">Expirations</a>
 
 </div>
 
@@ -672,7 +934,14 @@ while($cat=$categories->fetch_assoc()):
 
 <tbody>
 
-<?php while($row=$inventory->fetch_assoc()): ?>
+<?php foreach($inventoryRows as $row): ?>
+<?php
+$rowImages = $productImagesById[(int) $row['id']] ?? [];
+if(empty($rowImages) && !empty($row['image'])){
+    $rowImages[] = $row['image'];
+}
+$rowVariants = $productVariantsById[(int) $row['id']] ?? [];
+?>
 
 <tr>
 
@@ -710,7 +979,8 @@ onclick='openViewModal(
 <?= json_encode($row["price"]) ?>,
 <?= json_encode($row["stock"]) ?>,
 <?= json_encode($row["expiration_date"]) ?>,
-<?= json_encode($row["image"]) ?>
+<?= json_encode($rowImages) ?>,
+<?= json_encode($rowVariants) ?>
 )'>
 <i class="fa-regular fa-eye"></i>
 </div>
@@ -724,7 +994,8 @@ event,
 <?= $row["price"] ?>,
 <?= $row["stock"] ?>,
 <?= $row["category_id"] ?>,
-<?= json_encode($row["expiration_date"]) ?>
+<?= json_encode($row["expiration_date"]) ?>,
+<?= json_encode($rowVariants) ?>
 )'>
 <i class="fa-solid fa-ellipsis-vertical"></i>
 </div>
@@ -736,7 +1007,7 @@ event,
 </tr>
 
 
-<?php endwhile; ?>
+<?php endforeach; ?>
 
 <tr id="noResultsRow" style="display:none;">
 <td colspan="8" style="text-align:center; padding:20px; color:#888;">
@@ -986,106 +1257,6 @@ No services yet
 
 <?php endif; ?>
 
-<?php if($tab=="exp"): ?>
-
-<div class="table-card">
-
-<table id="expirationTable">
-
-<thead>
-<tr>
-<th>Image</th>
-<th>Name</th>
-<th>Category</th>
-<th>Stock</th>
-<th>Expiration Date</th>
-<th>Status</th>
-<th>Action</th>
-</tr>
-</thead>
-
-<tbody>
-
-<?php while($row=$expirations->fetch_assoc()): 
-
-$today=date("Y-m-d");
-
-if($row['expiration_date'] < $today){
-$status="Expired";
-$color="#ef4444";
-}
-elseif($row['expiration_date'] <= date("Y-m-d", strtotime("+7 days"))){
-$status="Expiring Soon";
-$color="#f59e0b";
-}
-else{
-$status="Good";
-$color="#10b981";
-}
-
-?>
-
-<tr>
-
-<td>
-<?php if($row['image']): ?>
-<img src="uploads/product/<?= $row['image'] ?>" class="product-img">
-<?php endif; ?>
-</td>
-
-<td><?= htmlspecialchars($row['name']) ?></td>
-
-<td><?= htmlspecialchars($row['category']) ?></td>
-
-<td><?= $row['stock'] ?></td>
-
-<td><?= date("M d, Y", strtotime($row['expiration_date'])) ?></td>
-
-<td>
-<span style="background:<?= $color ?>;color:#fff;padding:4px 10px;border-radius:8px;">
-<?= $status ?>
-</span>
-</td>
-
-<td>
-<div class="action-wrapper">
-<div class="action-btn"
-onclick='openViewModal(
-<?= json_encode($row["name"]) ?>,
-<?= json_encode($row["description"]) ?>,
-<?= json_encode($row["category"]) ?>,
-<?= json_encode($row["price"]) ?>,
-<?= json_encode($row["stock"]) ?>,
-<?= json_encode($row["expiration_date"]) ?>,
-<?= json_encode($row["image"]) ?>
-)'>
-<i class="fa-regular fa-eye"></i>
-</div>
-</div>
-</td>
-
-</tr>
-
-<?php endwhile; ?>
-
-<?php if($expirations->num_rows==0): ?>
-<tr>
-<td colspan="7" style="text-align:center;padding:40px;color:#888;">
-No expiration items found
-</td>
-</tr>
-<?php endif; ?>
-
-</tbody>
-
-</table>
-
-</div>
-
-<?php endif; ?>
-
-
-
 </div>
 
 
@@ -1165,6 +1336,15 @@ placeholder="Stock"
 required
 >
 
+<div class="variant-section">
+<div class="variant-heading">
+<span>Variations</span>
+<button type="button" onclick="addVariantRow()">+ Add Variation</button>
+</div>
+<div class="variant-help">Use this for products with options like T-shirt colors and sizes. If variations are added, total stock comes from the variation rows.</div>
+<div id="variantRows"></div>
+</div>
+
 
 <!-- CATEGORY -->
 <label for="edit_category">Category</label>
@@ -1172,7 +1352,6 @@ required
 name="category_id" 
 id="edit_category" 
 required
-onchange="toggleExpirationField()"
 >
 
 <option value="" disabled selected>Select Category</option>
@@ -1183,8 +1362,7 @@ while($cat=$categories->fetch_assoc()):
 ?>
 
 <option 
-value="<?= $cat['id'] ?>" 
-data-name="<?= strtolower($cat['name']) ?>"
+value="<?= $cat['id'] ?>"
 >
 <?= htmlspecialchars($cat['name']) ?>
 </option>
@@ -1194,15 +1372,18 @@ data-name="<?= strtolower($cat['name']) ?>"
 </select>
 
 
-<!-- EXPIRATION DATE (HIDDEN BY DEFAULT) -->
-<div id="expirationWrapper" style="display:none;">
-<label>Expiration Date</label>
+<!-- OPTIONAL EXPIRATION DATE -->
+<div id="expirationWrapper">
+<label>Expiration Date <span style="color:#64748b;font-weight:400;">(optional)</span></label>
 <input type="date" name="expiration_date" id="edit_exp">
 </div>
 
 <!-- IMAGE -->
 <label for="edit_image">Product Image</label>
-<input type="file" name="image" id="edit_image">
+<input type="file" name="image" id="edit_image" accept="image/*">
+
+<label for="extra_images">Additional Pictures</label>
+<input type="file" name="images[]" id="extra_images" accept="image/*" multiple>
 
 
 <!-- BUTTON -->
@@ -1233,6 +1414,8 @@ margin-bottom:15px;
 display:none;
 ">
 
+<div id="view_gallery" class="view-gallery"></div>
+
 <div style="margin-bottom:8px;">
 <b>Name:</b><br>
 <span id="view_name">-</span>
@@ -1261,6 +1444,11 @@ display:none;
 <div>
 <b>Expiration:</b><br>
 <span id="view_exp">None</span>
+</div>
+
+<div style="margin-top:8px;">
+<b>Variations:</b><br>
+<div id="view_variants" class="view-variants">None</div>
 </div>
 
 </div>
@@ -1387,7 +1575,8 @@ document.getElementById("description_field").value = "";
 
 document.getElementById("edit_id").value = "";
 
-document.getElementById("expirationWrapper").style.display="none";
+document.getElementById("edit_exp").value = "";
+clearVariantRows();
 
 const btn = document.getElementById("submitBtn");
 
@@ -1455,7 +1644,38 @@ function toggleDropdown(button){
 
 
 /* VIEW MODAL */
-function openViewModal(name,desc,cat,price,stock,exp,img){
+function clearVariantRows(){
+const rows = document.getElementById("variantRows");
+if(rows){
+rows.innerHTML = "";
+}
+}
+
+function addVariantRow(variant){
+const rows = document.getElementById("variantRows");
+if(!rows) return;
+
+const row = document.createElement("div");
+row.className = "variant-row";
+row.innerHTML = `
+<input name="variant_color[]" placeholder="Color" value="${escapeAttr(variant && variant.color ? variant.color : "")}">
+<input name="variant_size[]" placeholder="Size" value="${escapeAttr(variant && variant.size ? variant.size : "")}">
+<input name="variant_price[]" type="number" step="0.01" placeholder="Price" value="${escapeAttr(variant && variant.price !== null && variant.price !== undefined ? variant.price : "")}">
+<input name="variant_stock[]" type="number" min="0" placeholder="Stock" value="${escapeAttr(variant && variant.stock !== null && variant.stock !== undefined ? variant.stock : "")}">
+<button type="button" class="variant-remove" onclick="this.closest('.variant-row').remove()"><i class="fa-solid fa-xmark"></i></button>
+`;
+rows.appendChild(row);
+}
+
+function escapeAttr(value){
+return String(value)
+.replace(/&/g, "&amp;")
+.replace(/"/g, "&quot;")
+.replace(/</g, "&lt;")
+.replace(/>/g, "&gt;");
+}
+
+function openViewModal(name,desc,cat,price,stock,exp,images,variants){
 
 const modal = document.getElementById("viewModal");
 
@@ -1471,12 +1691,41 @@ document.getElementById("view_exp").innerText = exp || "None";
 
 /* IMAGE */
 const image = document.getElementById("view_image");
+const gallery = document.getElementById("view_gallery");
+let imageList = Array.isArray(images) ? images : (images ? [images] : []);
 
-if(img && img !== "null"){
-image.src = "uploads/product/" + img;
+if(imageList.length > 0){
+image.src = "uploads/product/" + imageList[0];
 image.style.display = "block";
 }else{
 image.style.display = "none";
+}
+
+gallery.innerHTML = "";
+imageList.slice(1).forEach(function(img){
+const thumb = document.createElement("img");
+thumb.src = "uploads/product/" + img;
+thumb.alt = "";
+thumb.onclick = function(){
+image.src = this.src;
+image.style.display = "block";
+};
+gallery.appendChild(thumb);
+});
+
+const variantWrap = document.getElementById("view_variants");
+variantWrap.innerHTML = "";
+if(Array.isArray(variants) && variants.length > 0){
+variants.forEach(function(variant){
+const label = [variant.color, variant.size].filter(Boolean).join(" / ") || "Default";
+const priceText = variant.price !== null && variant.price !== undefined && variant.price !== "" ? " - ₱" + Number(variant.price).toFixed(2) : "";
+const div = document.createElement("div");
+div.className = "view-variant-row";
+div.textContent = label + priceText + " - Stock: " + (parseInt(variant.stock, 10) || 0);
+variantWrap.appendChild(div);
+});
+}else{
+variantWrap.textContent = "None";
 }
 
 }
@@ -1504,7 +1753,7 @@ btn.name="update_service";
 
 
 
-function openEditModal(id,name,desc,price,stock,cat,exp){
+function openEditModal(id,name,desc,price,stock,cat,exp,variants){
 
 const modal = document.getElementById("modal");
 
@@ -1517,6 +1766,12 @@ document.getElementById("edit_price").value = price;
 document.getElementById("edit_stock").value = stock;
 document.getElementById("edit_category").value = cat;
 document.getElementById("edit_exp").value = exp;
+clearVariantRows();
+if(Array.isArray(variants)){
+variants.forEach(function(variant){
+addVariantRow(variant);
+});
+}
 
 const btn = document.getElementById("submitBtn");
 
@@ -1528,11 +1783,11 @@ btn.name = "update_inventory";
 
 let selectedRow = null;
 
-function openDropdown(event,id,name,desc,price,stock,cat,exp){
+function openDropdown(event,id,name,desc,price,stock,cat,exp,variants){
 
 event.stopPropagation();
 
-selectedRow = {id,name,desc,price,stock,cat,exp};
+selectedRow = {id,name,desc,price,stock,cat,exp,variants};
 
 const dropdown = document.getElementById("globalDropdown");
 
@@ -1583,7 +1838,8 @@ selectedRow.desc,
 selectedRow.price,
 selectedRow.stock,
 selectedRow.cat,
-selectedRow.exp
+selectedRow.exp,
+selectedRow.variants
 );
 
 dropdown.style.display="none";
@@ -1717,34 +1973,6 @@ dropdown.style.display="none";
 }
 
 
-function toggleExpirationField(){
-
-const select = document.getElementById("edit_category");
-
-if(!select.value){
-document.getElementById("expirationWrapper").style.display = "none";
-return;
-}
-
-const selectedOption = select.options[select.selectedIndex];
-
-const categoryName = selectedOption.getAttribute("data-name");
-
-const wrapper = document.getElementById("expirationWrapper");
-
-if(
-categoryName === "food" ||
-categoryName === "consumable" ||
-categoryName.includes("food") ||
-categoryName.includes("consumable")
-){
-wrapper.style.display = "block";
-}else{
-wrapper.style.display = "none";
-document.getElementById("edit_exp").value = "";
-}
-
-}
 function filterServiceTable(){
 
 const search=document
@@ -1843,7 +2071,8 @@ window.addEventListener("DOMContentLoaded", function(){
         <?= json_encode($editProduct['price']) ?>,
         <?= json_encode($editProduct['stock']) ?>,
         <?= json_encode($editProduct['category_id']) ?>,
-        <?= json_encode($editProduct['expiration_date']) ?>
+        <?= json_encode($editProduct['expiration_date']) ?>,
+        <?= json_encode($editProductVariants) ?>
     );
 
 });
